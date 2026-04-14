@@ -47,3 +47,4 @@ app.*.map.json
 # Firebase config files (local credentials)
 **/google-services.json
 **/GoogleService-Info.plist
+firebase.env.json

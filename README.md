@@ -28,11 +28,16 @@ CareCrew is a Firebase-backed Flutter app for patient setup, medication tracking
 	```bash
 	flutter pub get
 	```
-2. Replace `lib/src/firebase_options.dart` with generated FlutterFire config for your Firebase project.
-3. Make sure the matching `google-services.json` is in `android/app/`.
-4. Launch on Android.
+2. Make sure the matching `google-services.json` is in `android/app/`.
+3. Copy `firebase.env.example.json` to `firebase.env.json` and fill your real values.
+4. Run with `--dart-define-from-file` (keeps keys out of git).
 	```bash
-	flutter run
+	cp firebase.env.example.json firebase.env.json
+	flutter run --dart-define-from-file=firebase.env.json
+	```
+5. For release builds, pass the same file.
+	```bash
+	flutter build apk --dart-define-from-file=firebase.env.json
 	```
 
 ## Important note
