@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:carecrew_app/src/models.dart';
+import 'package:carecrew_app/src/notification_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:file_picker/file_picker.dart';
@@ -454,6 +455,9 @@ class CareCrewRepository {
         'alertReasons': alertReasons,
       },
     );
+    if (alertReasons.isNotEmpty) {
+      await NotificationService.instance.showAbnormalVitalsAlert(alertReasons);
+    }
     return saved;
   }
 
@@ -536,6 +540,22 @@ class CareCrewRepository {
         meta: meta,
       ).toMap(),
     );
+
+    const caregiverTriggerTypes = <String>{
+      'care_note_added',
+      'vitals_logged',
+      'critical_alert',
+      'medication_taken',
+      'medication_missed',
+      'medication_added',
+      'medication_status_changed',
+    };
+    if (caregiverTriggerTypes.contains(type)) {
+      final name = actor.trim().isEmpty ? 'Caregiver' : actor.trim();
+      await NotificationService.instance.showCaregiverActivityNotification(
+        caregiverName: name,
+      );
+    }
   }
 
   Stream<List<DocumentEntry>> watchDocuments(String uid) {

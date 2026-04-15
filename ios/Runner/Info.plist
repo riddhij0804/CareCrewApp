@@ -45,5 +45,7 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSUserNotificationUsageDescription</key>
+	<string>CareCrew uses notifications for medication, appointment, vitals, and care circle updates.</string>
 </dict>
 </plist>

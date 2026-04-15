@@ -1,4 +1,6 @@
 import 'package:carecrew_app/src/providers.dart';
+import 'package:carecrew_app/src/models.dart';
+import 'package:carecrew_app/src/notification_service.dart';
 import 'package:carecrew_app/src/screens/feature_screens.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,6 +18,8 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
   String? _resolvedForAuthUid;
   String? _activeCareUid;
   bool _resolvingCareUid = false;
+  String _lastMedicationReminderSync = '';
+  String _lastAppointmentReminderSync = '';
 
   @override
   Widget build(BuildContext context) {
@@ -60,6 +64,29 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
       HistoryScreen(uid: effectiveUid),
       CareCircleScreen(uid: effectiveUid),
     ];
+
+    final meds = ref.watch(medicationsProvider(effectiveUid)).value ?? const <MedicationEntry>[];
+    final appts = ref.watch(appointmentsProvider(effectiveUid)).value ?? const <AppointmentEntry>[];
+
+    final medSig = meds
+        .map((m) => '${m.id}|${m.name}|${m.scheduledHour}|${m.scheduledMinute}')
+        .join('~');
+    if (medSig != _lastMedicationReminderSync) {
+      _lastMedicationReminderSync = medSig;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        NotificationService.instance.syncMedicationReminders(uid: effectiveUid, medications: meds);
+      });
+    }
+
+    final apptSig = appts
+        .map((a) => '${a.id}|${a.doctorName}|${a.appointmentDateTime.toIso8601String()}|${a.status}')
+        .join('~');
+    if (apptSig != _lastAppointmentReminderSync) {
+      _lastAppointmentReminderSync = apptSig;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        NotificationService.instance.syncAppointmentReminders(uid: effectiveUid, appointments: appts);
+      });
+    }
 
     return Scaffold(
       body: IndexedStack(index: _index, children: pages),

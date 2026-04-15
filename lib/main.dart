@@ -1,5 +1,6 @@
 import 'package:carecrew_app/src/app.dart';
 import 'package:carecrew_app/src/firebase_options.dart';
+import 'package:carecrew_app/src/notification_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -35,6 +36,8 @@ Future<void> main() async {
 
   // Initialize deep link listener
   final appLinks = AppLinks();
+
+  await NotificationService.instance.initialize();
   
   runApp(
     ProviderScope(
