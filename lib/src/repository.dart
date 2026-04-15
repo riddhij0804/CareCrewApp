@@ -1,26 +1,28 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:carecrew_app/src/models.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 class CareCrewRepository {
   CareCrewRepository({
     FirebaseAuth? auth,
     FirebaseFirestore? firestore,
-    FirebaseStorage? storage,
   })  : _auth = auth ?? FirebaseAuth.instance,
-        _firestore = firestore ?? FirebaseFirestore.instance,
-        _storage = storage ?? FirebaseStorage.instance;
+        _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
-  final FirebaseStorage _storage;
+  static const String _bucketName = 'carecrew-files';
 
   FirebaseAuth get auth => _auth;
-  FirebaseStorage get storage => _storage;
   FirebaseFirestore get firestore => _firestore;
+  supabase.SupabaseClient get _supabase => supabase.Supabase.instance.client;
+  dynamic get _storage => _supabase.storage.from(_bucketName);
 
   Stream<User?> authStateChanges() => _auth.authStateChanges();
 
@@ -41,6 +43,35 @@ class CareCrewRepository {
   String _dayKey(DateTime value) => DateFormat('yyyy-MM-dd').format(value);
 
   String _shortDate(DateTime value) => DateFormat('MMM d, yyyy').format(value);
+
+  String? _contentTypeForExtension(String? extension) {
+    final ext = (extension ?? '').toLowerCase();
+    switch (ext) {
+      case 'pdf':
+        return 'application/pdf';
+      case 'png':
+        return 'image/png';
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'txt':
+        return 'text/plain';
+      case 'doc':
+        return 'application/msword';
+      case 'docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      default:
+        return null;
+    }
+  }
+
+  Future<Uint8List> _readBytes(PlatformFile file) async {
+    if (file.bytes != null) return file.bytes!;
+    if (file.path != null && file.path!.isNotEmpty) {
+      return File(file.path!).readAsBytes();
+    }
+    throw StateError('Could not read the selected file. Please pick it again.');
+  }
 
   int _minutesOfDay(DateTime value) => value.hour * 60 + value.minute;
 
@@ -149,10 +180,17 @@ class CareCrewRepository {
     required String uid,
     required PatientProfile profile,
   }) async {
-    await _patientDoc(uid).set(
-      profile.toMap(),
-      SetOptions(merge: true),
-    );
+    try {
+      await _patientDoc(uid).set(
+        profile.toMap(),
+        SetOptions(merge: true),
+      );
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
+        throw StateError('Permission denied while saving patient profile. Check Firestore rules for users/$uid/patient/main.');
+      }
+      rethrow;
+    }
     final verificationSnapshot = await _patientDoc(uid).get();
     if (!verificationSnapshot.exists) {
       throw StateError('Patient profile was not persisted. Please try again.');
@@ -397,10 +435,17 @@ class CareCrewRepository {
     required AppointmentEntry appointment,
   }) async {
     final ref = _subCollection(uid, 'appointments').doc();
-    await ref.set({
-      ...appointment.toMap(),
-      'id': ref.id,
-    });
+    try {
+      await ref.set({
+        ...appointment.toMap(),
+        'id': ref.id,
+      });
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied') {
+        throw StateError('Permission denied while saving appointment. Check Firestore rules for users/$uid/appointments.');
+      }
+      rethrow;
+    }
     await addActivityLog(
       uid: uid,
       type: 'appointment_added',
@@ -470,17 +515,16 @@ class CareCrewRepository {
     required String uid,
     required PlatformFile file,
   }) async {
-    final bytes = file.bytes;
-    if (bytes == null) {
-      throw StateError('File bytes were not available. Pick the file again with byte access enabled.');
-    }
+    final bytes = await _readBytes(file);
 
     final cleanName = file.name.replaceAll(' ', '_');
     final storagePath = 'users/$uid/documents/${DateTime.now().millisecondsSinceEpoch}_$cleanName';
-    final ref = _storage.ref(storagePath);
-    final metadata = SettableMetadata(contentType: file.extension != null ? 'application/${file.extension}' : null);
-    await ref.putData(bytes, metadata);
-    final downloadUrl = await ref.getDownloadURL();
+    await _storage.uploadBinary(
+      storagePath,
+      bytes,
+      fileOptions: supabase.FileOptions(contentType: _contentTypeForExtension(file.extension)),
+    );
+    final downloadUrl = _storage.getPublicUrl(storagePath);
     final docRef = _subCollection(uid, 'documents').doc();
     final entry = DocumentEntry(
       id: docRef.id,
@@ -507,11 +551,29 @@ class CareCrewRepository {
     return entry;
   }
 
+  Future<Map<String, String>> uploadVitalPhoto({
+    required String uid,
+    required PlatformFile file,
+  }) async {
+    final bytes = await _readBytes(file);
+    final cleanName = file.name.replaceAll(' ', '_');
+    final storagePath = 'users/$uid/vitals/${DateTime.now().millisecondsSinceEpoch}_$cleanName';
+    await _storage.uploadBinary(
+      storagePath,
+      bytes,
+      fileOptions: supabase.FileOptions(contentType: _contentTypeForExtension(file.extension) ?? 'image/*'),
+    );
+    return {
+      'storagePath': storagePath,
+      'downloadUrl': _storage.getPublicUrl(storagePath),
+    };
+  }
+
   Future<void> deleteDocument({
     required String uid,
     required DocumentEntry document,
   }) async {
-    await _storage.ref(document.storagePath).delete();
+    await _storage.remove([document.storagePath]);
     await _subCollection(uid, 'documents').doc(document.id).delete();
     await addActivityLog(
       uid: uid,
@@ -521,6 +583,49 @@ class CareCrewRepository {
       actor: _auth.currentUser?.displayName ?? 'Caregiver',
       meta: {'documentId': document.id},
     );
+  }
+
+  Future<void> clearActivityHistory(String uid) async {
+    final snapshot = await _subCollection(uid, 'activity_logs').get();
+    if (snapshot.docs.isEmpty) return;
+    final batch = _firestore.batch();
+    for (final doc in snapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+  }
+
+  Future<String> resolveCareContextUid(User user) async {
+    final email = user.email?.trim().toLowerCase();
+    if (email == null || email.isEmpty) return user.uid;
+
+    try {
+      final snapshot = await _firestore.collectionGroup('caregivers').where('contact', isEqualTo: email).get();
+      if (snapshot.docs.isEmpty) return user.uid;
+
+      String? ownerUid;
+      for (final doc in snapshot.docs) {
+        final ownerRef = doc.reference.parent.parent;
+        if (ownerRef == null) continue;
+        ownerUid ??= ownerRef.id;
+
+        final status = (doc.data()['inviteStatus'] as String? ?? 'pending').toLowerCase();
+        if (status != 'accepted') {
+          await doc.reference.set(
+            {
+              'inviteStatus': 'accepted',
+              'acceptedAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
+        }
+      }
+
+      return ownerUid ?? user.uid;
+    } catch (_) {
+      return user.uid;
+    }
   }
 
   int medicationAdherencePercent(List<ActivityLogEntry> logs) {
@@ -550,4 +655,33 @@ class CareCrewRepository {
   DateTime sevenDaysAgo() => DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day).subtract(const Duration(days: 6));
 
   DateTime thirtyDaysAgo() => DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day).subtract(const Duration(days: 29));
+
+  /// Mark a caregiver invitation as accepted after password creation
+  Future<void> acceptCaregiverInvite({
+    required String ownerUid,
+    required String caregiverEmail,
+    required String caregiverUid,
+  }) async {
+    final snapshot = await _firestore
+        .collectionGroup('caregivers')
+        .where('contact', isEqualTo: caregiverEmail.toLowerCase())
+        .get();
+
+    if (snapshot.docs.isEmpty) {
+      throw StateError('Invitation not found for $caregiverEmail');
+    }
+
+    for (final doc in snapshot.docs) {
+      final parentPath = doc.reference.parent.parent?.path;
+      if (parentPath != null && parentPath.contains(ownerUid)) {
+        await doc.reference.update({
+          'inviteStatus': 'accepted',
+          'acceptedAt': FieldValue.serverTimestamp(),
+          'acceptedBy': caregiverUid,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+  }
 }
+

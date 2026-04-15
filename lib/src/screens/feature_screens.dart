@@ -7,9 +7,10 @@ import 'package:carecrew_app/src/widgets.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 String _shortDate(DateTime value) => DateFormat('MMM d, yyyy').format(value);
@@ -360,6 +361,69 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     icon: Icons.note_alt_rounded,
                     label: 'Docs',
                     onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DocumentsScreen(uid: widget.uid))),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: _QuickActionTile(
+                    icon: Icons.groups_rounded,
+                    label: 'Care Team',
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CareCircleScreen(uid: widget.uid))),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFCC2E32),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () async {
+                          final Uri emergencyUri = Uri(scheme: 'tel', path: '911');
+                          try {
+                            if (await canLaunchUrl(emergencyUri)) {
+                              await launchUrl(emergencyUri);
+                            } else {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Unable to make call on this device')),
+                                );
+                              }
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Error: $e')),
+                              );
+                            }
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(16),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.emergency_rounded, color: Colors.white, size: 28),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Emergency',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -895,15 +959,13 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
     String? photoUrl;
     String? photoPath;
     try {
-      if (_pickedPhoto != null && _pickedPhoto!.bytes != null) {
-        final cleanName = _pickedPhoto!.name.replaceAll(' ', '_');
-        photoPath = 'users/${widget.uid}/vitals/${DateTime.now().millisecondsSinceEpoch}_$cleanName';
-        final storageRef = ref.read(repositoryProvider).storage.ref(photoPath);
-        await storageRef.putData(
-          _pickedPhoto!.bytes!,
-          SettableMetadata(contentType: _pickedPhoto!.extension != null ? 'image/${_pickedPhoto!.extension}' : 'image/*'),
-        );
-        photoUrl = await storageRef.getDownloadURL();
+      if (_pickedPhoto != null) {
+        final uploaded = await ref.read(repositoryProvider).uploadVitalPhoto(
+              uid: widget.uid,
+              file: _pickedPhoto!,
+            );
+        photoPath = uploaded['storagePath'];
+        photoUrl = uploaded['downloadUrl'];
       }
 
       await ref.read(repositoryProvider).saveVitalEntry(
@@ -1219,6 +1281,35 @@ class HistoryScreen extends ConsumerStatefulWidget {
 class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   int _viewIndex = 0;
 
+  Future<void> _clearHistory() async {
+    final shouldClear = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear history?'),
+        content: const Text('This will remove all activity feed entries for this care account.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Clear')),
+        ],
+      ),
+    );
+
+    if (shouldClear != true) return;
+    try {
+      await ref.read(repositoryProvider).clearActivityHistory(widget.uid);
+      ref.invalidate(activityLogsProvider(widget.uid));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('History cleared successfully.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to clear history: $error')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final logs = ref.watch(activityLogsProvider(widget.uid)).value ?? const <ActivityLogEntry>[];
@@ -1235,19 +1326,24 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final attendance = repo.appointmentAttendancePercent(appointments);
     final missedCount = recentLogs.where((log) => log.type == 'medication_missed').length;
     final alerts = recentLogs.where((log) => log.type == 'critical_alert').toList();
+    final medicationsPerDay = meds.length;
     final weeklyBars = List.generate(7, (index) {
       final day = DateTime.now().subtract(Duration(days: 6 - index));
       final key = _dayKey(day);
       final taken = logs.where((log) => log.type == 'medication_taken' && log.createdAt != null && _dayKey(log.createdAt!) == key).length;
-      final missed = logs.where((log) => log.type == 'medication_missed' && log.createdAt != null && _dayKey(log.createdAt!) == key).length;
-      final total = math.max(taken + missed, 1);
-      return (taken / total) * 100;
+      final totalScheduled = math.max(medicationsPerDay, 1);
+      return (math.min(taken, totalScheduled) / totalScheduled) * 100;
     });
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('History'),
         actions: [
+          IconButton(
+            onPressed: _clearHistory,
+            icon: const Icon(Icons.delete_sweep_rounded),
+            tooltip: 'Clear History',
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 14),
             child: CircleAvatar(
@@ -1572,43 +1668,125 @@ class CareCircleScreen extends ConsumerStatefulWidget {
 
 class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
   final _nameController = TextEditingController();
-  final _contactController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _mobileController = TextEditingController();
   final _relationshipController = TextEditingController();
   CaregiverRole _role = CaregiverRole.editor;
   bool _saving = false;
 
+  bool _isValidEmail(String value) {
+    final email = value.trim();
+    final regex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    return regex.hasMatch(email);
+  }
+
+  String _generateInviteCode() {
+    final random = DateTime.now().millisecondsSinceEpoch.toString();
+    return random.substring(random.length - 6);
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
-    _contactController.dispose();
+    _emailController.dispose();
+    _mobileController.dispose();
     _relationshipController.dispose();
     super.dispose();
   }
 
   Future<void> _inviteCaregiver() async {
-    if (_nameController.text.trim().isEmpty || _contactController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter caregiver name and contact.')));
+    if (_nameController.text.trim().isEmpty || _emailController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter caregiver name and email.')));
       return;
     }
+
+    final inviteEmail = _emailController.text.trim().toLowerCase();
+    if (!_isValidEmail(inviteEmail)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid email address.')));
+      return;
+    }
+
     setState(() => _saving = true);
     try {
+      final inviteCode = _generateInviteCode();
       await ref.read(repositoryProvider).saveCaregiver(
             uid: widget.uid,
             caregiver: CaregiverEntry(
               id: '',
               name: _nameController.text.trim(),
-              contact: _contactController.text.trim(),
+              contact: inviteEmail,
+              mobile: _mobileController.text.trim(),
               role: _role.name,
               relationship: _relationshipController.text.trim(),
               inviteStatus: 'pending',
+              inviteCode: inviteCode,
             ),
           );
+
       _nameController.clear();
-      _contactController.clear();
+      _emailController.clear();
+      _mobileController.clear();
       _relationshipController.clear();
       setState(() => _role = CaregiverRole.editor);
       ref.invalidate(caregiversProvider(widget.uid));
       ref.invalidate(activityLogsProvider(widget.uid));
+      
+      // Show test link for development/testing (before Cloud Functions deployed)
+      if (mounted) {
+        final testDeepLink = 'carecrew://accept-invite/$inviteCode?email=${Uri.encodeComponent(inviteEmail)}&uid=${Uri.encodeComponent(widget.uid)}';
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Invitation Created'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Invitation created for $inviteEmail'),
+                  const SizedBox(height: 12),
+                  const Text('📧 Email Status:', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  const Text('When Cloud Functions is deployed, this caregiver will receive an email with the acceptance link.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  const SizedBox(height: 16),
+                  const Text('🔗 Test Link (Development):', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(6)),
+                    child: SelectableText(testDeepLink, style: const TextStyle(fontSize: 11, fontFamily: 'monospace')),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Use this link to test the acceptance flow on your device.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () async {
+                  await Share.share(
+                    'You are invited to join CareCrew. Open this link to accept:\n\n$testDeepLink',
+                    subject: 'CareCrew Invitation',
+                  );
+                },
+                child: const Text('Share'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: testDeepLink));
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Link copied to clipboard')));
+                  Navigator.pop(context);
+                },
+                child: const Text('Copy Link'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Done'),
+              ),
+            ],
+          ),
+        );
+      }
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
@@ -1733,7 +1911,9 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
                 const SizedBox(height: 14),
                 CareCrewTextField(controller: _nameController, label: 'Name', hintText: 'Caregiver name'),
                 const SizedBox(height: 14),
-                CareCrewTextField(controller: _contactController, label: 'Email or Mobile', hintText: 'contact info'),
+                CareCrewTextField(controller: _emailController, label: 'Email', hintText: 'caregiver@example.com'),
+                const SizedBox(height: 14),
+                CareCrewTextField(controller: _mobileController, label: 'Mobile Number', hintText: '+1-XXX-XXX-XXXX'),
                 const SizedBox(height: 14),
                 CareCrewTextField(controller: _relationshipController, label: 'Relationship', hintText: 'Spouse, nurse, daughter...'),
                 const SizedBox(height: 14),
@@ -1771,14 +1951,54 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
   }
 }
 
-class ActivityScreen extends ConsumerWidget {
+enum _ActivityRange { all, today, week }
+
+class ActivityScreen extends ConsumerStatefulWidget {
   const ActivityScreen({super.key, required this.uid});
 
   final String uid;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final logs = ref.watch(activityLogsProvider(uid)).value ?? const <ActivityLogEntry>[];
+  ConsumerState<ActivityScreen> createState() => _ActivityScreenState();
+}
+
+class _ActivityScreenState extends ConsumerState<ActivityScreen> {
+  _ActivityRange _range = _ActivityRange.all;
+
+  @override
+  Widget build(BuildContext context) {
+    final logs = ref.watch(activityLogsProvider(widget.uid)).value ?? const <ActivityLogEntry>[];
+    final repo = ref.read(repositoryProvider);
+    final filteredLogs = switch (_range) {
+      _ActivityRange.today => repo.logsForRange(logs, repo.startOfToday()),
+      _ActivityRange.week => repo.logsForRange(logs, repo.sevenDaysAgo()),
+      _ActivityRange.all => logs,
+    };
+
+    Widget filterChip({
+      required _ActivityRange value,
+      required String label,
+    }) {
+      final selected = _range == value;
+      return GestureDetector(
+        onTap: () => setState(() => _range = value),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? const Color(0xFF103A86) : Colors.white70,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Activity'),
@@ -1799,17 +2019,17 @@ class ActivityScreen extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(color: const Color(0xFF103A86), borderRadius: BorderRadius.circular(16)),
-            child: const Row(
+            child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                SoftChip(label: 'All Activity', color: Colors.white, textColor: Color(0xFF103A86)),
-                Text('Today', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
-                Text('This Week', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+                filterChip(value: _ActivityRange.all, label: 'All Activity'),
+                filterChip(value: _ActivityRange.today, label: 'Today'),
+                filterChip(value: _ActivityRange.week, label: 'This Week'),
               ],
             ),
           ),
           const SizedBox(height: 16),
-          if (logs.isEmpty)
+          if (filteredLogs.isEmpty)
             const EmptyStateCard(
               title: 'No activity yet',
               subtitle: 'Every action, note, and health log will appear here in real time.',
@@ -1821,13 +2041,13 @@ class ActivityScreen extends ConsumerWidget {
               children: [
                 Container(
                   width: 4,
-                  height: math.max(500, logs.length * 110).toDouble(),
+                  height: math.max(500, filteredLogs.length * 110).toDouble(),
                   decoration: BoxDecoration(color: const Color(0xFF8FC2F1), borderRadius: BorderRadius.circular(999)),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
-                    children: logs
+                    children: filteredLogs
                         .map(
                           (entry) => Padding(
                             padding: const EdgeInsets.only(bottom: 12),

@@ -12,7 +12,10 @@ class ShellScreen extends ConsumerStatefulWidget {
 
 class _ShellScreenState extends ConsumerState<ShellScreen> {
   int _index = 0;
-  bool _syncedForUid = false;
+  String? _syncedForUid;
+  String? _resolvedForAuthUid;
+  String? _activeCareUid;
+  bool _resolvingCareUid = false;
 
   @override
   Widget build(BuildContext context) {
@@ -22,19 +25,40 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
     }
 
     final repository = ref.watch(repositoryProvider);
-    if (!_syncedForUid) {
-      _syncedForUid = true;
+
+    if (_resolvedForAuthUid != user.uid && !_resolvingCareUid) {
+      _resolvingCareUid = true;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
-        await repository.syncMedicationStatuses(user.uid);
+        final resolvedUid = await repository.resolveCareContextUid(user);
+        if (!mounted) return;
+        setState(() {
+          _resolvedForAuthUid = user.uid;
+          _activeCareUid = resolvedUid;
+          _resolvingCareUid = false;
+          _syncedForUid = null;
+        });
+      });
+    }
+
+    final effectiveUid = _activeCareUid ?? user.uid;
+
+    if (_syncedForUid != effectiveUid) {
+      _syncedForUid = effectiveUid;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        try {
+          await repository.syncMedicationStatuses(effectiveUid);
+        } catch (_) {
+          // Keep shell usable even when sync fails due to backend permissions.
+        }
       });
     }
 
     final pages = [
-      HomeScreen(uid: user.uid),
-      MedicationsScreen(uid: user.uid),
-      VitalsScreen(uid: user.uid),
-      HistoryScreen(uid: user.uid),
-      CareCircleScreen(uid: user.uid),
+      HomeScreen(uid: effectiveUid),
+      MedicationsScreen(uid: effectiveUid),
+      VitalsScreen(uid: effectiveUid),
+      HistoryScreen(uid: effectiveUid),
+      CareCircleScreen(uid: effectiveUid),
     ];
 
     return Scaffold(

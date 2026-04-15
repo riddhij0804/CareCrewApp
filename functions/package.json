@@ -1,0 +1,23 @@
+{
+  "name": "carecrew-functions",
+  "description": "Firebase Cloud Functions for CareCrew",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^5.0.0",
+    "nodemailer": "^6.9.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/nodemailer": "^8.0.0",
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,22 +1,83 @@
 import 'package:carecrew_app/src/providers.dart';
+import 'package:carecrew_app/src/screens/accept_invite_screen.dart';
 import 'package:carecrew_app/src/screens/auth_screen.dart';
 import 'package:carecrew_app/src/screens/shell_screen.dart';
 import 'package:carecrew_app/src/theme.dart';
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class CareCrewApp extends StatelessWidget {
-  const CareCrewApp({super.key, this.firebaseInitError});
+class CareCrewApp extends StatefulWidget {
+  const CareCrewApp({super.key, this.firebaseInitError, this.appLinks});
 
   final String? firebaseInitError;
+  final AppLinks? appLinks;
+
+  @override
+  State<CareCrewApp> createState() => _CareCrewAppState();
+}
+
+class _CareCrewAppState extends State<CareCrewApp> {
+  late final AppLinks _appLinks;
+  String? _inviteCode;
+  String? _inviteEmail;
+  String? _inviteOwnerUid;
+
+  @override
+  void initState() {
+    super.initState();
+    _appLinks = widget.appLinks ?? AppLinks();
+    _setupDeepLinkListener();
+  }
+
+  void _setupDeepLinkListener() {
+    _appLinks.uriLinkStream.listen(
+      (uri) {
+        _handleDeepLink(uri);
+      },
+      onError: (err) {
+        debugPrint('Deep link error: $err');
+      },
+    );
+  }
+
+  void _handleDeepLink(Uri uri) {
+    // Parse carecrew://accept-invite/{code}?email={email}&uid={ownerUid}
+    if (uri.scheme == 'carecrew' && uri.host == 'accept-invite') {
+      final code = uri.pathSegments.isNotEmpty ? uri.pathSegments.join('/') : '';
+      final email = uri.queryParameters['email'] ?? '';
+      final ownerUid = uri.queryParameters['uid'] ?? '';
+
+      setState(() {
+        _inviteCode = code;
+        _inviteEmail = email;
+        _inviteOwnerUid = ownerUid;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    // If there's a pending invite, show the accept screen
+    if (_inviteCode != null && _inviteEmail != null && _inviteOwnerUid != null) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'CareCrew',
+        theme: AppTheme.light,
+        home: AcceptInviteScreen(
+          inviteCode: _inviteCode!,
+          email: _inviteEmail!,
+          ownerUid: _inviteOwnerUid!,
+        ),
+      );
+    }
+
+    // Otherwise, show normal app
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'CareCrew',
       theme: AppTheme.light,
-      home: firebaseInitError == null ? const AuthGate() : FirebaseSetupScreen(error: firebaseInitError!),
+      home: widget.firebaseInitError == null ? const AuthGate() : FirebaseSetupScreen(error: widget.firebaseInitError!),
     );
   }
 }

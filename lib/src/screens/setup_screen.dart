@@ -101,6 +101,7 @@ class _SetupFlowScreenState extends ConsumerState<SetupFlowScreen> {
               id: '',
               name: _caregiverNameController.text.trim(),
               contact: _caregiverContactController.text.trim(),
+              mobile: '',
               role: _selectedRole!.name,
               relationship: _caregiverRelationshipController.text.trim(),
               inviteStatus: 'pending',

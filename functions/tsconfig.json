@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "noImplicitAny": true,
+    "rootDir": "src",
+    "outDir": "lib",
+    "preserveConstEnums": true,
+    "sourceMap": true,
+    "strict": true,
+    "target": "ES2020"
+  },
+  "compileOnSave": true,
+  "include": ["src"]
+}

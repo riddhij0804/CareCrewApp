@@ -223,7 +223,8 @@ class CareGiversSetupScreen extends ConsumerStatefulWidget {
 class _CareGiversSetupScreenState extends ConsumerState<CareGiversSetupScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
-  final _contactController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _mobileController = TextEditingController();
   final _relationshipController = TextEditingController();
   CaregiverRole? _selectedRole = CaregiverRole.editor;
   bool _isSaving = false;
@@ -231,7 +232,8 @@ class _CareGiversSetupScreenState extends ConsumerState<CareGiversSetupScreen> {
   @override
   void dispose() {
     _nameController.dispose();
-    _contactController.dispose();
+    _emailController.dispose();
+    _mobileController.dispose();
     _relationshipController.dispose();
     super.dispose();
   }
@@ -251,19 +253,23 @@ class _CareGiversSetupScreenState extends ConsumerState<CareGiversSetupScreen> {
 
     setState(() => _isSaving = true);
     try {
+      final inviteCode = DateTime.now().millisecondsSinceEpoch.toString().substring(6);
       await ref.read(repositoryProvider).saveCaregiver(
             uid: uid,
             caregiver: CaregiverEntry(
               id: '',
               name: _nameController.text.trim(),
-              contact: _contactController.text.trim(),
+              contact: _emailController.text.trim().toLowerCase(),
+              mobile: _mobileController.text.trim(),
               role: _selectedRole!.name,
               relationship: _relationshipController.text.trim(),
               inviteStatus: 'pending',
+              inviteCode: inviteCode,
             ),
           );
       _nameController.clear();
-      _contactController.clear();
+      _emailController.clear();
+      _mobileController.clear();
       _relationshipController.clear();
       setState(() => _selectedRole = CaregiverRole.editor);
       if (!mounted) return;
@@ -371,10 +377,16 @@ class _CareGiversSetupScreenState extends ConsumerState<CareGiversSetupScreen> {
                           ),
                           const SizedBox(height: 14),
                           CareCrewTextField(
-                            controller: _contactController,
-                            label: 'Email or Mobile Number',
-                            hintText: 'contact info',
-                            validator: (value) => value == null || value.trim().isEmpty ? 'Contact info is required' : null,
+                            controller: _emailController,
+                            label: 'Email',
+                            hintText: 'caregiver@example.com',
+                            validator: (value) => value == null || value.trim().isEmpty ? 'Email is required' : null,
+                          ),
+                          const SizedBox(height: 14),
+                          CareCrewTextField(
+                            controller: _mobileController,
+                            label: 'Mobile Number',
+                            hintText: '+1-XXX-XXX-XXXX',
                           ),
                           const SizedBox(height: 14),
                           CareCrewTextField(

@@ -159,19 +159,23 @@ class CaregiverEntry {
     required this.id,
     required this.name,
     required this.contact,
+    required this.mobile,
     required this.role,
     required this.relationship,
     required this.inviteStatus,
+    this.inviteCode,
     this.createdAt,
     this.updatedAt,
   });
 
   final String id;
   final String name;
-  final String contact;
+  final String contact; // email
+  final String mobile;
   final String role;
   final String relationship;
   final String inviteStatus;
+  final String? inviteCode; // unique code for accept link
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -183,9 +187,11 @@ class CaregiverEntry {
       id: id,
       name: (map['name'] as String?) ?? '',
       contact: (map['contact'] as String?) ?? '',
+      mobile: (map['mobile'] as String?) ?? '',
       role: (map['role'] as String?) ?? 'viewer',
       relationship: (map['relationship'] as String?) ?? '',
       inviteStatus: (map['inviteStatus'] as String?) ?? 'pending',
+      inviteCode: (map['inviteCode'] as String?),
       createdAt: _date(map['createdAt']),
       updatedAt: _date(map['updatedAt']),
     );
@@ -195,9 +201,11 @@ class CaregiverEntry {
     return {
       'name': name,
       'contact': contact,
+      'mobile': mobile,
       'role': role,
       'relationship': relationship,
       'inviteStatus': inviteStatus,
+      'inviteCode': inviteCode,
       'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     };

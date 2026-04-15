@@ -39,6 +39,14 @@ android {
     }
 }
 
+dependencies {
+    // Import the Firebase BoM
+    implementation(platform("com.google.firebase:firebase-bom:34.12.0"))
+
+    // Add Firebase Android SDKs here only if you use native Android code.
+    // For FlutterFire plugins, dependencies are mostly managed by Flutter packages.
+}
+
 flutter {
     source = "../.."
 }

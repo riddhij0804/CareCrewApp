@@ -2,6 +2,7 @@ import 'package:carecrew_app/src/providers.dart';
 import 'package:carecrew_app/src/screens/setup_flow_screens.dart';
 import 'package:carecrew_app/src/screens/shell_screen.dart';
 import 'package:carecrew_app/src/widgets.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -255,10 +256,22 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       );
                       return;
                     }
-                    await ref.read(repositoryProvider).sendPasswordReset(email);
-                    if (mounted) {
+                    try {
+                      await ref.read(repositoryProvider).sendPasswordReset(email);
+                      if (mounted) {
+                        messenger.showSnackBar(
+                          const SnackBar(content: Text('Password reset link sent.')),
+                        );
+                      }
+                    } on FirebaseAuthException catch (error) {
+                      if (!mounted) return;
                       messenger.showSnackBar(
-                        const SnackBar(content: Text('Password reset link sent.')),
+                        SnackBar(content: Text(error.message ?? error.code)),
+                      );
+                    } catch (error) {
+                      if (!mounted) return;
+                      messenger.showSnackBar(
+                        SnackBar(content: Text(error.toString())),
                       );
                     }
                   },
