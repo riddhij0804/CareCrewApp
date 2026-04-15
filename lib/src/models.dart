@@ -118,6 +118,7 @@ class PatientProfile {
     required this.age,
     required this.dischargeDate,
     required this.condition,
+    this.emergencyContact = '',
     this.createdAt,
     this.updatedAt,
   });
@@ -127,6 +128,7 @@ class PatientProfile {
   final int age;
   final DateTime dischargeDate;
   final String condition;
+  final String emergencyContact;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -137,6 +139,7 @@ class PatientProfile {
       age: (map['age'] as num?)?.toInt() ?? 0,
       dischargeDate: _date(map['dischargeDate']) ?? DateTime.now(),
       condition: (map['condition'] as String?) ?? '',
+      emergencyContact: (map['emergencyContact'] as String?) ?? '',
       createdAt: _date(map['createdAt']),
       updatedAt: _date(map['updatedAt']),
     );
@@ -148,6 +151,7 @@ class PatientProfile {
       'age': age,
       'dischargeDate': Timestamp.fromDate(dischargeDate),
       'condition': condition,
+      'emergencyContact': emergencyContact,
       'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     };

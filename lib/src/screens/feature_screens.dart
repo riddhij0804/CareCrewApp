@@ -74,10 +74,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final patientAsync = ref.watch(patientProfileProvider(widget.uid));
-    final userAsync = ref.watch(currentUserProfileProvider(widget.uid));
     final medsAsync = ref.watch(medicationsProvider(widget.uid));
     final apptsAsync = ref.watch(appointmentsProvider(widget.uid));
-    final logsAsync = ref.watch(activityLogsProvider(widget.uid));
     final vitalsAsync = ref.watch(vitalsProvider(widget.uid));
 
     // Handle any errors from the patient profile stream
@@ -106,10 +104,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     final meds = medsAsync.value ?? const <MedicationEntry>[];
     final appts = apptsAsync.value ?? const <AppointmentEntry>[];
-    final logs = logsAsync.value ?? const <ActivityLogEntry>[];
     final vitals = vitalsAsync.value ?? const <VitalEntry>[];
     final patient = patientAsync.value;
-    final user = userAsync.value;
 
     final todayMeds = meds;
     final takenToday = todayMeds.where((med) => med.status == 'taken').length;
@@ -119,37 +115,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final recoveryLabel = progress >= 0.8 ? 'Recovery on track' : progress >= 0.5 ? 'Needs attention' : 'Early recovery';
     final nextAppointment = appts.where((appointment) => appointment.appointmentDateTime.isAfter(DateTime.now())).toList()..sort((a, b) => a.appointmentDateTime.compareTo(b.appointmentDateTime));
     final upcoming = nextAppointment.isNotEmpty ? nextAppointment.first : null;
-    final latestLog = logs.isNotEmpty ? logs.first : null;
+
+    final primaryMed = todayMeds.isNotEmpty ? todayMeds.first : null;
 
     return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 20,
-        title: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('CareCrew'),
-            Text(
-              patient?.fullName ?? 'Patient Dashboard',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 14),
-            child: GestureDetector(
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(uid: widget.uid))),
-              child: CircleAvatar(
-                backgroundColor: const Color(0xFF103A86),
-                child: Text(
-                  (user?.displayName.isNotEmpty == true ? user!.displayName[0] : 'C').toUpperCase(),
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+      backgroundColor: const Color(0xFFCFE6F7),
       body: RefreshIndicator(
         onRefresh: () async {
           await ref.read(repositoryProvider).syncMedicationStatuses(widget.uid);
@@ -160,356 +130,352 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ref.invalidate(vitalsProvider(widget.uid));
         },
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+          padding: EdgeInsets.zero,
           children: [
-            AppSectionCard(
-              backgroundColor: const Color(0xFF103A86),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  patientAsync.when(
-                    loading: () => const Center(
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 16),
-                        child: CircularProgressIndicator(color: Colors.white),
-                      ),
-                    ),
-                    error: (error, stack) => Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Error loading profile',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w900,
-                              ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          error.toString(),
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.white.withValues(alpha: 0.7),
-                              ),
-                        ),
-                      ],
-                    ),
-                    data: (patientData) => Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          patientData?.fullName ?? 'No patient profile yet',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w900,
-                              ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          patientData == null
-                              ? 'Complete setup to unlock the dashboard.'
-                              : 'Discharged on ${_shortDate(patientData.dischargeDate)} • ${patientData.condition}',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.white.withValues(alpha: 0.88)),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      StatCard(
-                        label: 'Recovery',
-                        value: '${(progress * 100).round()}%',
-                        subtitle: recoveryLabel,
-                        color: const Color(0xFFF7E7B5),
-                        icon: Icons.favorite_rounded,
-                      ),
-                      const SizedBox(width: 12),
-                      StatCard(
-                        label: 'Upcoming',
-                        value: upcoming == null ? '0' : '${nextAppointment.length}',
-                        subtitle: upcoming == null ? 'No visits due' : _shortDate(upcoming.appointmentDateTime),
-                        color: const Color(0xFFDCE7FF),
-                        icon: Icons.event_available_rounded,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            AppSectionCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SectionHeader(
-                    title: 'Daily Progress',
-                    action: Text('${(progress * 100).round()}%', style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF103A86))),
-                  ),
-                  const SizedBox(height: 14),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(999),
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      minHeight: 12,
-                      backgroundColor: const Color(0xFFE5EDF7),
-                      valueColor: const AlwaysStoppedAnimation(Color(0xFF103A86)),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    '$takenToday medication(s) taken today',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  if (latestLog != null) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      'Latest activity: ${latestLog.title} • ${_relativeTime(latestLog.createdAt ?? DateTime.now())}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            SectionHeader(
-              title: 'Today\'s Care',
-              action: TextButton(
-                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AppointmentsScreen(uid: widget.uid))),
-                child: const Text('+ Add New'),
-              ),
-            ),
-            const SizedBox(height: 10),
-            if (todayMeds.isEmpty)
-              EmptyStateCard(
-                title: 'No medications scheduled yet',
-                subtitle: 'Add the first medication so the dashboard can track daily adherence.',
-                action: CareCrewPrimaryButton(
-                  label: 'Add Medication',
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => MedicationsScreen(uid: widget.uid))),
-                  leading: const Icon(Icons.medication_rounded),
-                ),
-              )
-            else
-              ...todayMeds.map(
-                (medication) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _MedicationQuickCard(
-                    medication: medication,
-                    onMarkTaken: medication.canBeMarkedTaken
-                        ? () async {
-                            await ref.read(repositoryProvider).markMedicationTaken(uid: widget.uid, medication: medication);
-                            ref.invalidate(medicationsProvider(widget.uid));
-                            ref.invalidate(activityLogsProvider(widget.uid));
-                          }
-                        : null,
-                  ),
+            Container(
+              padding: const EdgeInsets.fromLTRB(18, 10, 18, 20),
+              decoration: const BoxDecoration(
+                color: Color(0xFF0D2F7A),
+                borderRadius: BorderRadius.only(
+                  bottomLeft: Radius.circular(28),
+                  bottomRight: Radius.circular(28),
                 ),
               ),
-            const SizedBox(height: 12),
-            if (upcoming != null) ...[
-              AppSectionCard(
+              child: SafeArea(
+                bottom: false,
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SectionHeader(
-                      title: 'Next Appointment',
-                      action: SoftChip(label: upcoming.statusValue.label, color: const Color(0xFFDCE7FF)),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(upcoming.doctorName, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 4),
-                    Text('${_longDate(upcoming.appointmentDateTime)} • ${_shortTime(upcoming.appointmentDateTime)}'),
-                    const SizedBox(height: 6),
-                    Text(upcoming.location),
-                    if (upcoming.notes.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(upcoming.notes),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-            ],
-            SectionHeader(
-              title: 'Quick Actions',
-              action: IconButton(
-                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(uid: widget.uid))),
-                icon: const Icon(Icons.chevron_right_rounded),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _QuickActionTile(
-                    icon: Icons.medication_rounded,
-                    label: 'Meds',
-                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => MedicationsScreen(uid: widget.uid))),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _QuickActionTile(
-                    icon: Icons.monitor_heart_rounded,
-                    label: 'Vitals',
-                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => VitalsScreen(uid: widget.uid))),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _QuickActionTile(
-                    icon: Icons.note_alt_rounded,
-                    label: 'Docs',
-                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DocumentsScreen(uid: widget.uid))),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: _QuickActionTile(
-                    icon: Icons.groups_rounded,
-                    label: 'Care Team',
-                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CareCircleScreen(uid: widget.uid))),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFCC2E32),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () async {
-                          final Uri emergencyUri = Uri(scheme: 'tel', path: '911');
-                          try {
-                            if (await canLaunchUrl(emergencyUri)) {
-                              await launchUrl(emergencyUri);
-                            } else {
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Unable to make call on this device')),
-                                );
-                              }
-                            }
-                          } catch (e) {
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Error: $e')),
-                              );
-                            }
-                          }
-                        },
-                        borderRadius: BorderRadius.circular(16),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.emergency_rounded, color: Colors.white, size: 28),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'Emergency',
-                              style: TextStyle(
+                    Row(
+                      children: [
+                        IconButton(
+                          onPressed: () => Navigator.maybePop(context),
+                          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                        ),
+                        const Spacer(),
+                        Text(
+                          'CareCrew',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
                                 color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
                               ),
-                              textAlign: TextAlign.center,
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(uid: widget.uid))),
+                          icon: const Icon(Icons.settings_rounded, color: Colors.white),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Stack(
+                          children: [
+                            const CircleAvatar(
+                              radius: 30,
+                              backgroundColor: Color(0xFFEAF2FF),
+                              child: Icon(Icons.person_rounded, size: 34, color: Color(0xFF4469A9)),
+                            ),
+                            Positioned(
+                              right: 2,
+                              bottom: 2,
+                              child: Container(
+                                width: 11,
+                                height: 11,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8D658),
+                                  borderRadius: BorderRadius.circular(50),
+                                  border: Border.all(color: const Color(0xFF0D2F7A), width: 1.5),
+                                ),
+                              ),
                             ),
                           ],
                         ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                patient?.fullName ?? 'Patient Dashboard',
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                              ),
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFC7D5),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  '• ${progress >= 0.8 ? 'Post-op Recovery: Week 3' : recoveryLabel}',
+                                  style: const TextStyle(
+                                    color: Color(0xFF0D2F7A),
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8F8F8),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Daily Goals',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                color: const Color(0xFF0D2F7A),
+                                fontWeight: FontWeight.w900,
+                              ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '$completedTasks of $totalTasks tasks completed',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            SizedBox(
+                              width: 140,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(999),
+                                child: LinearProgressIndicator(
+                                  value: progress,
+                                  minHeight: 6,
+                                  backgroundColor: const Color(0xFFE9E9E9),
+                                  valueColor: const AlwaysStoppedAnimation(Color(0xFFE4C43F)),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8F8F8),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              'Today\'s Care',
+                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    color: const Color(0xFF0D2F7A),
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                            ),
+                            const Spacer(),
+                            TextButton(
+                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AppointmentsScreen(uid: widget.uid))),
+                              child: const Text('+ Add New'),
+                            ),
+                          ],
+                        ),
+                        if (primaryMed != null) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8F4E8),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                const CircleAvatar(
+                                  radius: 20,
+                                  backgroundColor: Color(0xFFF4C53A),
+                                  child: Icon(Icons.medication_liquid_rounded, color: Colors.white),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(primaryMed.name, style: Theme.of(context).textTheme.titleMedium),
+                                      Text(primaryMed.dosage, style: Theme.of(context).textTheme.bodySmall),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF2D94E),
+                                    borderRadius: BorderRadius.circular(20),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(alpha: 0.14),
+                                        blurRadius: 6,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Text(primaryMed.timeLabel, style: const TextStyle(fontWeight: FontWeight.w800)),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          CareCrewPrimaryButton(
+                            label: primaryMed.canBeMarkedTaken ? 'Mark as taken' : 'Already taken',
+                            onPressed: primaryMed.canBeMarkedTaken
+                                ? () async {
+                                    await ref.read(repositoryProvider).markMedicationTaken(uid: widget.uid, medication: primaryMed);
+                                    ref.invalidate(medicationsProvider(widget.uid));
+                                    ref.invalidate(activityLogsProvider(widget.uid));
+                                  }
+                                : null,
+                            leading: const Icon(Icons.check_circle_rounded),
+                          ),
+                        ] else ...[
+                          const SizedBox(height: 10),
+                          EmptyStateCard(
+                            title: 'No medications scheduled yet',
+                            subtitle: 'Add the first medication to start tracking daily care.',
+                            action: CareCrewPrimaryButton(
+                              label: 'Add Medication',
+                              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => MedicationsScreen(uid: widget.uid))),
+                              leading: const Icon(Icons.medication_rounded),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF3ECF0),
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.calendar_month_rounded, color: Color(0xFF2B2A2F)),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  upcoming == null
+                                      ? 'No upcoming appointments'
+                                      : '${upcoming.doctorName} ${DateFormat('MMM d, h:mm a').format(upcoming.appointmentDateTime)}',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Quick Actions',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: const Color(0xFF0D2F7A),
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _QuickActionTile(
+                        icon: Icons.medication_rounded,
+                        label: 'Meds',
+                        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => MedicationsScreen(uid: widget.uid))),
+                      ),
+                      _QuickActionTile(
+                        icon: Icons.monitor_heart_rounded,
+                        label: 'Symptoms',
+                        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => VitalsScreen(uid: widget.uid))),
+                      ),
+                      _QuickActionTile(
+                        icon: Icons.note_alt_rounded,
+                        label: 'Documents',
+                        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DocumentsScreen(uid: widget.uid))),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () async {
+                        final emergencyNumber = (patient?.emergencyContact ?? '').trim();
+                        if (emergencyNumber.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Add emergency contact in patient profile first.')),
+                          );
+                          return;
+                        }
+
+                        final digitsOnly = emergencyNumber.replaceAll(RegExp(r'\D'), '');
+                        final dialNumber = digitsOnly.length == 10
+                            ? '+91$digitsOnly'
+                            : emergencyNumber.replaceAll(RegExp(r'[^0-9+]'), '');
+                        final Uri emergencyUri = Uri(scheme: 'tel', path: dialNumber);
+                        try {
+                          if (await canLaunchUrl(emergencyUri)) {
+                            await launchUrl(
+                              emergencyUri,
+                              mode: LaunchMode.externalApplication,
+                            );
+                          } else {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Unable to make call on this device')),
+                              );
+                            }
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                          }
+                        }
+                      },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF8E0B2A),
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size.fromHeight(60),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
+                      ),
+                      icon: const Icon(Icons.add_ic_call_rounded),
+                      label: const Text(
+                        'EMERGENCY CALL',
+                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 0.3),
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            CareCrewPrimaryButton(
-              label: 'Log Vitals',
-              leading: const Icon(Icons.add_chart_rounded),
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => VitalsScreen(uid: widget.uid))),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ActivityScreen(uid: widget.uid))),
-              icon: const Icon(Icons.receipt_long_rounded),
-              label: const Text('Open Activity Feed'),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(52),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-                side: const BorderSide(color: Color(0xFF103A86), width: 1.4),
+                ],
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _MedicationQuickCard extends StatelessWidget {
-  const _MedicationQuickCard({required this.medication, required this.onMarkTaken});
-
-  final MedicationEntry medication;
-  final VoidCallback? onMarkTaken;
-
-  @override
-  Widget build(BuildContext context) {
-    final status = medication.status;
-    final color = status == 'taken'
-        ? const Color(0xFFE6F7E9)
-        : status == 'missed'
-            ? const Color(0xFFFCE7E8)
-            : const Color(0xFFFFF8E0);
-    return AppSectionCard(
-      backgroundColor: color,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const CircleAvatar(
-                radius: 18,
-                backgroundColor: Color(0xFF103A86),
-                child: Icon(Icons.medication_liquid_rounded, color: Colors.white, size: 18),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(medication.name, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
-                    Text(medication.dosage),
-                  ],
-                ),
-              ),
-              SoftChip(
-                label: medication.status,
-                color: _statusColor(status).withValues(alpha: 0.15),
-                textColor: _statusColor(status),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text('Scheduled for ${medication.timeLabel} • ${medication.bucket}'),
-          if (medication.notes.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(medication.notes),
-          ],
-          if (onMarkTaken != null) ...[
-            const SizedBox(height: 12),
-            CareCrewPrimaryButton(
-              label: 'Mark as Taken',
-              onPressed: onMarkTaken,
-              leading: const Icon(Icons.check_circle_rounded),
-            ),
-          ],
-        ],
       ),
     );
   }
@@ -526,18 +492,21 @@ class _QuickActionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(22),
-      child: Container(
-        height: 96,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: const Color(0xFFDDE9F6)),
-        ),
+      borderRadius: BorderRadius.circular(999),
+      child: SizedBox(
+        width: 100,
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: const Color(0xFF103A86), size: 30),
+            Container(
+              width: 76,
+              height: 76,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFFE8F0FA),
+                border: Border.all(color: const Color(0xFF1B2D4B), width: 1.2),
+              ),
+              child: Icon(icon, color: const Color(0xFF0D2F7A), size: 38),
+            ),
             const SizedBox(height: 8),
             Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
           ],
@@ -1667,12 +1636,253 @@ class CareCircleScreen extends ConsumerStatefulWidget {
 }
 
 class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
+  final _noteController = TextEditingController();
+  bool _savingNote = false;
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _addCareNote() async {
+    final note = _noteController.text.trim();
+    if (note.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a note first.')));
+      return;
+    }
+
+    setState(() => _savingNote = true);
+    try {
+      final actor = ref.read(currentUserProfileProvider(widget.uid)).value?.displayName;
+      await ref.read(repositoryProvider).addActivityLog(
+            uid: widget.uid,
+            type: 'care_note_added',
+            title: 'Care note added',
+            details: note,
+            actor: (actor == null || actor.isEmpty) ? 'Caregiver' : actor,
+          );
+      _noteController.clear();
+      ref.invalidate(activityLogsProvider(widget.uid));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Note added to latest updates.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _savingNote = false);
+    }
+  }
+
+  Future<void> _openAddNoteDialog() async {
+    _noteController.clear();
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Add Note'),
+        content: TextField(
+          controller: _noteController,
+          maxLines: 4,
+          decoration: const InputDecoration(hintText: 'Write an update for the care circle...'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: _savingNote ? null : () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: _savingNote
+                ? null
+                : () async {
+                    await _addCareNote();
+                    if (context.mounted) Navigator.pop(context);
+                  },
+            child: Text(_savingNote ? 'Saving...' : 'Save Note'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final caregivers = ref.watch(caregiversProvider(widget.uid)).value ?? const <CaregiverEntry>[];
+    final logs = ref.watch(activityLogsProvider(widget.uid)).value ?? const <ActivityLogEntry>[];
+    ActivityLogEntry? latestCareNote;
+    for (final entry in logs) {
+      if (entry.type == 'care_note_added') {
+        latestCareNote = entry;
+        break;
+      }
+    }
+    ActivityLogEntry? latestClinical;
+    for (final entry in logs) {
+      if (entry.type == 'medication_taken' || entry.type == 'vitals_logged') {
+        latestClinical = entry;
+        break;
+      }
+    }
+    final latestUpdate = latestCareNote ?? latestClinical;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFCFE6F7),
+      appBar: AppBar(
+        title: const Text('Care Circle'),
+        leading: IconButton(
+          onPressed: () => Navigator.maybePop(context),
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
+        actions: const [
+          Padding(
+            padding: EdgeInsets.only(right: 14),
+            child: CircleAvatar(
+              radius: 18,
+              backgroundColor: Colors.white,
+              child: Icon(Icons.person_rounded, color: Color(0xFF103A86)),
+            ),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
+        children: [
+          AppSectionCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SoftChip(label: 'Latest Update', color: Color(0xFFF7D7E6), textColor: Color(0xFF8B3A68)),
+                const SizedBox(height: 12),
+                Text(
+                  latestUpdate == null ? 'No updates yet' : '"${latestUpdate.details}"',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 10),
+                if (latestUpdate?.actor.isNotEmpty == true)
+                  Text('Posted by ${latestUpdate!.actor} • ${_relativeTime(latestUpdate.createdAt ?? DateTime.now())}', style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: _openAddNoteDialog,
+                    icon: const Icon(Icons.note_add_rounded),
+                    label: const Text('Add Note'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          SectionHeader(
+            title: 'Team Members (${caregivers.length})',
+          ),
+          const SizedBox(height: 10),
+          if (caregivers.isEmpty)
+            const EmptyStateCard(
+              title: 'No caregivers added yet',
+              subtitle: 'Invite family or professionals to keep everyone aligned.',
+              icon: Icons.groups_rounded,
+            )
+          else
+            ...caregivers.map(
+              (caregiver) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: AppSectionCard(
+                  backgroundColor: caregiver.inviteStatus == 'pending' ? const Color(0xFFE7F3FD) : Colors.white,
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 24,
+                        backgroundColor: const Color(0xFFF2D7E8),
+                        child: Text(caregiver.name.isNotEmpty ? caregiver.name[0].toUpperCase() : 'C', style: const TextStyle(fontWeight: FontWeight.w900)),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(caregiver.name, style: const TextStyle(fontWeight: FontWeight.w900)),
+                            Text(
+                              caregiver.inviteStatus == 'pending'
+                                  ? 'Invite sent'
+                                  : (caregiver.relationship.trim().isEmpty ? caregiver.contact : caregiver.relationship),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                SoftChip(label: caregiver.roleValue.label, color: _statusColor(caregiver.role).withValues(alpha: 0.16), textColor: _statusColor(caregiver.role)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (caregiver.canEdit)
+                        IconButton(
+                          onPressed: () async {
+                            await ref.read(repositoryProvider).deleteCaregiver(uid: widget.uid, caregiverId: caregiver.id);
+                            ref.invalidate(caregiversProvider(widget.uid));
+                            ref.invalidate(activityLogsProvider(widget.uid));
+                          },
+                          icon: const Icon(Icons.delete_outline_rounded),
+                        )
+                      else
+                        IconButton(
+                          onPressed: () {},
+                          icon: const Icon(Icons.lock_outline_rounded),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => AddCaregiverScreen(uid: widget.uid)),
+            ),
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Invite to Circle'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(64),
+              backgroundColor: const Color(0xFF103A86),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
+              textStyle: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AddCaregiverScreen extends ConsumerStatefulWidget {
+  const AddCaregiverScreen({super.key, required this.uid});
+
+  final String uid;
+
+  @override
+  ConsumerState<AddCaregiverScreen> createState() => _AddCaregiverScreenState();
+}
+
+class _AddCaregiverScreenState extends ConsumerState<AddCaregiverScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _mobileController = TextEditingController();
   final _relationshipController = TextEditingController();
   CaregiverRole _role = CaregiverRole.editor;
   bool _saving = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _mobileController.dispose();
+    _relationshipController.dispose();
+    super.dispose();
+  }
 
   bool _isValidEmail(String value) {
     final email = value.trim();
@@ -1683,15 +1893,6 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
   String _generateInviteCode() {
     final random = DateTime.now().millisecondsSinceEpoch.toString();
     return random.substring(random.length - 6);
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _emailController.dispose();
-    _mobileController.dispose();
-    _relationshipController.dispose();
-    super.dispose();
   }
 
   Future<void> _inviteCaregiver() async {
@@ -1730,8 +1931,7 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
       setState(() => _role = CaregiverRole.editor);
       ref.invalidate(caregiversProvider(widget.uid));
       ref.invalidate(activityLogsProvider(widget.uid));
-      
-      // Show test link for development/testing (before Cloud Functions deployed)
+
       if (mounted) {
         final testDeepLink = 'carecrew://accept-invite/$inviteCode?email=${Uri.encodeComponent(inviteEmail)}&uid=${Uri.encodeComponent(widget.uid)}';
         showDialog(
@@ -1796,113 +1996,11 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final caregivers = ref.watch(caregiversProvider(widget.uid)).value ?? const <CaregiverEntry>[];
-    final latestUpdate = ref.watch(activityLogsProvider(widget.uid)).value?.firstWhere(
-          (entry) => entry.type == 'medication_taken' || entry.type == 'vitals_logged' || entry.type == 'care_note_added',
-          orElse: () => ActivityLogEntry(id: '', type: '', title: 'No updates yet', details: 'Add a care note or log activity to populate this area.', actor: '', createdAt: null),
-        );
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Care Circle'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 14),
-            child: CircleAvatar(
-              radius: 18,
-              backgroundColor: Colors.white,
-              child: Text('C', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900)),
-            ),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Add Caregiver')),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+        padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
         children: [
-          AppSectionCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SoftChip(label: 'Latest Update', color: Color(0xFFF7D7E6), textColor: Color(0xFF8B3A68)),
-                const SizedBox(height: 12),
-                Text(
-                  latestUpdate?.title ?? 'No updates yet',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(height: 6),
-                Text(latestUpdate?.details ?? 'Add a care note or log activity to populate this area.'),
-                const SizedBox(height: 10),
-                if (latestUpdate?.actor.isNotEmpty == true)
-                  Text('Posted by ${latestUpdate!.actor} • ${_relativeTime(latestUpdate.createdAt ?? DateTime.now())}', style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          SectionHeader(
-            title: 'Team Members (${caregivers.length})',
-            action: TextButton(
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DocumentsScreen(uid: widget.uid))),
-              child: const Text('Documents'),
-            ),
-          ),
-          const SizedBox(height: 10),
-          if (caregivers.isEmpty)
-            const EmptyStateCard(
-              title: 'No caregivers added yet',
-              subtitle: 'Invite family or professionals to keep everyone aligned.',
-              icon: Icons.groups_rounded,
-            )
-          else
-            ...caregivers.map(
-              (caregiver) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: AppSectionCard(
-                  backgroundColor: caregiver.roleValue == CaregiverRole.viewer ? const Color(0xFFF4FAFF) : Colors.white,
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 22,
-                        backgroundColor: const Color(0xFFF2D7E8),
-                        child: Text(caregiver.name.isNotEmpty ? caregiver.name[0].toUpperCase() : 'C', style: const TextStyle(fontWeight: FontWeight.w900)),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(caregiver.name, style: const TextStyle(fontWeight: FontWeight.w900)),
-                            Text(caregiver.contact, style: Theme.of(context).textTheme.bodySmall),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                SoftChip(label: caregiver.roleValue.label, color: _statusColor(caregiver.role).withValues(alpha: 0.16), textColor: _statusColor(caregiver.role)),
-                                const SizedBox(width: 8),
-                                SoftChip(label: caregiver.inviteStatus),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (caregiver.canEdit)
-                        IconButton(
-                          onPressed: () async {
-                            await ref.read(repositoryProvider).deleteCaregiver(uid: widget.uid, caregiverId: caregiver.id);
-                            ref.invalidate(caregiversProvider(widget.uid));
-                            ref.invalidate(activityLogsProvider(widget.uid));
-                          },
-                          icon: const Icon(Icons.delete_outline_rounded),
-                        )
-                      else
-                        IconButton(
-                          onPressed: () {},
-                          icon: const Icon(Icons.lock_outline_rounded),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          const SizedBox(height: 12),
           AppSectionCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1913,7 +2011,7 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
                 const SizedBox(height: 14),
                 CareCrewTextField(controller: _emailController, label: 'Email', hintText: 'caregiver@example.com'),
                 const SizedBox(height: 14),
-                CareCrewTextField(controller: _mobileController, label: 'Mobile Number', hintText: '+1-XXX-XXX-XXXX'),
+                CareCrewTextField(controller: _mobileController, label: 'Mobile Number', hintText: '+91XXXXXXXXXX'),
                 const SizedBox(height: 14),
                 CareCrewTextField(controller: _relationshipController, label: 'Relationship', hintText: 'Spouse, nurse, daughter...'),
                 const SizedBox(height: 14),
@@ -1925,25 +2023,12 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
                 ),
                 const SizedBox(height: 14),
                 CareCrewPrimaryButton(
-                  label: _saving ? 'Sending...' : 'Send Invite',
+                  label: _saving ? 'Sending...' : 'Add Caregiver',
                   onPressed: _saving ? null : _inviteCaregiver,
                   leading: const Icon(Icons.person_add_rounded),
                 ),
-                const SizedBox(height: 10),
-                CareCrewPrimaryButton(
-                  label: 'Open Activity Feed',
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ActivityScreen(uid: widget.uid))),
-                  leading: const Icon(Icons.receipt_long_rounded),
-                ),
               ],
             ),
-          ),
-          const SizedBox(height: 14),
-          OutlinedButton.icon(
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AppointmentsScreen(uid: widget.uid))),
-            icon: const Icon(Icons.event_note_rounded),
-            label: const Text('Appointments'),
-            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(52), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22))),
           ),
         ],
       ),
@@ -2701,6 +2786,7 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
   final _patientNameController = TextEditingController();
   final _patientAgeController = TextEditingController();
   final _patientConditionController = TextEditingController();
+  final _patientEmergencyContactController = TextEditingController();
   final _patientDischargeController = TextEditingController();
 
   final _caregiverFormKey = GlobalKey<FormState>();
@@ -2719,6 +2805,7 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
     _patientNameController.dispose();
     _patientAgeController.dispose();
     _patientConditionController.dispose();
+    _patientEmergencyContactController.dispose();
     _patientDischargeController.dispose();
     super.dispose();
   }
@@ -2774,6 +2861,7 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
               age: int.parse(_patientAgeController.text.trim()),
               dischargeDate: _patientDischargeDate!,
               condition: _patientConditionController.text.trim(),
+              emergencyContact: _patientEmergencyContactController.text.trim(),
             ),
           );
       if (!mounted) return;
@@ -2802,6 +2890,7 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
       _patientNameController.text = patient.fullName;
       _patientAgeController.text = patient.age.toString();
       _patientConditionController.text = patient.condition;
+      _patientEmergencyContactController.text = patient.emergencyContact;
       _patientDischargeDate = patient.dischargeDate;
       _patientDischargeController.text = _shortDate(patient.dischargeDate);
     }
@@ -2897,6 +2986,14 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
                     hintText: 'Diagnosis / condition',
                     maxLines: 3,
                     validator: (value) => value == null || value.trim().isEmpty ? 'Condition is required' : null,
+                  ),
+                  const SizedBox(height: 12),
+                  CareCrewTextField(
+                    controller: _patientEmergencyContactController,
+                    label: 'Emergency Contact Number',
+                    hintText: 'Enter emergency contact',
+                    keyboardType: TextInputType.phone,
+                    validator: (value) => value == null || value.trim().isEmpty ? 'Emergency contact is required' : null,
                   ),
                   const SizedBox(height: 12),
                   CareCrewPrimaryButton(

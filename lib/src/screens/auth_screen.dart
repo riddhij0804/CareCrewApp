@@ -1,4 +1,5 @@
 import 'package:carecrew_app/src/providers.dart';
+import 'package:carecrew_app/src/repository.dart';
 import 'package:carecrew_app/src/screens/setup_flow_screens.dart';
 import 'package:carecrew_app/src/screens/shell_screen.dart';
 import 'package:carecrew_app/src/widgets.dart';
@@ -27,6 +28,34 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   bool _isLoginMode = true;
   bool _useEmailLogin = true;
   bool _isBusy = false;
+
+  Future<void> _routeAfterSignIn(CareCrewRepository repo) async {
+    final user = repo.currentUser;
+    if (user == null || !mounted) return;
+
+    try {
+      final patientSnapshot = await repo.firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('patient')
+          .doc('main')
+          .get();
+
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (_) => patientSnapshot.exists ? const ShellScreen() : const SetupFlowScreen(),
+        ),
+        (route) => false,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const SetupFlowScreen()),
+        (route) => false,
+      );
+    }
+  }
 
   @override
   void dispose() {
@@ -58,44 +87,27 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         email: _signInEmailController.text.trim(),
         password: _signInPasswordController.text.trim(),
       );
-      if (!mounted) return;
-      
-      // Check if user has completed patient profile setup
-      final user = repo.currentUser;
-      if (user != null) {
-        try {
-          // Try to get the patient profile
-          final patientSnapshot = await repo.firestore
-              .collection('users')
-              .doc(user.uid)
-              .collection('patient')
-              .doc('main')
-              .get();
-          
-          if (!mounted) return;
-          
-          // If no patient profile exists, go to setup; otherwise go to home
-          if (!patientSnapshot.exists) {
-            Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => const SetupFlowScreen()),
-              (route) => false,
-            );
-          } else {
-            Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => const ShellScreen()),
-              (route) => false,
-            );
-          }
-        } catch (_) {
-          // If there's an error checking, assume setup is needed
-          if (!mounted) return;
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const SetupFlowScreen()),
-            (route) => false,
-          );
-        }
-      }
+      await _routeAfterSignIn(repo);
     } on Exception catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _isBusy = false);
+    }
+  }
+
+  Future<void> _submitGoogleSignIn() async {
+    final repo = ref.read(repositoryProvider);
+    setState(() => _isBusy = true);
+    try {
+      await repo.signInWithGoogle();
+      await _routeAfterSignIn(repo);
+    } on FirebaseAuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message ?? error.code)),
+      );
+    } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
@@ -243,6 +255,15 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 label: _isBusy ? 'Logging in...' : 'Log in',
                 onPressed: _isBusy ? null : _submitSignIn,
               ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _isBusy ? null : _submitGoogleSignIn,
+                icon: const Icon(Icons.g_mobiledata_rounded, size: 24),
+                label: const Text('Continue with Google'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                ),
+              ),
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
@@ -344,6 +365,15 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
               CareCrewPrimaryButton(
                 label: _isBusy ? 'Creating account...' : 'Sign up',
                 onPressed: _isBusy ? null : _submitSignUp,
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _isBusy ? null : _submitGoogleSignIn,
+                icon: const Icon(Icons.g_mobiledata_rounded, size: 24),
+                label: const Text('Continue with Google'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                ),
               ),
             ],
           ),

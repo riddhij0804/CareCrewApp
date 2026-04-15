@@ -5,6 +5,7 @@ import 'package:carecrew_app/src/models.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
@@ -17,6 +18,7 @@ class CareCrewRepository {
 
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
   static const String _bucketName = 'carecrew-files';
 
   FirebaseAuth get auth => _auth;
@@ -138,7 +140,38 @@ class CareCrewRepository {
     await _auth.signInWithEmailAndPassword(email: email, password: password);
   }
 
-  Future<void> signOut() => _auth.signOut();
+  Future<void> signInWithGoogle() async {
+    final googleUser = await _googleSignIn.signIn();
+    if (googleUser == null) {
+      throw StateError('Google sign-in was cancelled.');
+    }
+
+    final googleAuth = await googleUser.authentication;
+    final idToken = googleAuth.idToken;
+    if (idToken == null || idToken.isEmpty) {
+      throw StateError('Google sign-in failed: missing ID token.');
+    }
+
+    final credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: idToken,
+    );
+
+    final userCredential = await _auth.signInWithCredential(credential);
+    final user = userCredential.user;
+    if (user != null) {
+      await ensureUserProfile(user);
+    }
+  }
+
+  Future<void> signOut() async {
+    try {
+      await _googleSignIn.signOut();
+    } catch (_) {
+      // Proceed with Firebase sign-out even if Google sign-out is unavailable.
+    }
+    await _auth.signOut();
+  }
 
   Future<void> sendPasswordReset(String email) => _auth.sendPasswordResetEmail(email: email);
 

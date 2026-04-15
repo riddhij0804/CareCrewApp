@@ -26,6 +26,7 @@ class _PatientProfileSetupScreenState extends ConsumerState<PatientProfileSetupS
   final _fullNameController = TextEditingController();
   final _ageController = TextEditingController();
   final _conditionController = TextEditingController();
+  final _emergencyContactController = TextEditingController();
   final _dischargeDateController = TextEditingController();
 
   DateTime? _dischargeDate;
@@ -36,6 +37,7 @@ class _PatientProfileSetupScreenState extends ConsumerState<PatientProfileSetupS
     _fullNameController.dispose();
     _ageController.dispose();
     _conditionController.dispose();
+    _emergencyContactController.dispose();
     _dischargeDateController.dispose();
     super.dispose();
   }
@@ -83,6 +85,7 @@ class _PatientProfileSetupScreenState extends ConsumerState<PatientProfileSetupS
         age: int.parse(_ageController.text.trim()),
         dischargeDate: _dischargeDate!,
         condition: _conditionController.text.trim(),
+        emergencyContact: _emergencyContactController.text.trim(),
       );
       
       await ref.read(repositoryProvider).savePatientProfile(
@@ -194,6 +197,14 @@ class _PatientProfileSetupScreenState extends ConsumerState<PatientProfileSetupS
                         hintText: 'e.g. Post-op recovery',
                         maxLines: 3,
                         validator: (value) => value == null || value.trim().isEmpty ? 'Condition is required' : null,
+                      ),
+                      const SizedBox(height: 14),
+                      CareCrewTextField(
+                        controller: _emergencyContactController,
+                        label: 'Emergency Contact Number',
+                        hintText: 'e.g. +91 9876543210',
+                        keyboardType: TextInputType.phone,
+                        validator: (value) => value == null || value.trim().isEmpty ? 'Emergency contact is required' : null,
                       ),
                       const SizedBox(height: 16),
                       CareCrewPrimaryButton(

@@ -2,6 +2,7 @@ import 'package:carecrew_app/src/providers.dart';
 import 'package:carecrew_app/src/screens/accept_invite_screen.dart';
 import 'package:carecrew_app/src/screens/auth_screen.dart';
 import 'package:carecrew_app/src/screens/shell_screen.dart';
+import 'package:carecrew_app/src/screens/setup_flow_screens.dart';
 import 'package:carecrew_app/src/theme.dart';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
@@ -99,7 +100,21 @@ class _AuthGateState extends ConsumerState<AuthGate> {
         if (user == null) {
           return const AuthScreen();
         }
-        return const ShellScreen();
+
+        final patientState = ref.watch(patientProfileProvider(user.uid));
+        return patientState.when(
+          data: (patient) {
+            if (patient == null) {
+              return const SetupFlowScreen();
+            }
+            return const ShellScreen();
+          },
+          loading: () => const _LoadingGate(),
+          error: (_, __) {
+            // Default to setup on profile-read failures so onboarding is not skipped.
+            return const SetupFlowScreen();
+          },
+        );
       },
       loading: () => const _LoadingGate(),
       error: (error, stackTrace) => _GateError(message: error.toString()),
