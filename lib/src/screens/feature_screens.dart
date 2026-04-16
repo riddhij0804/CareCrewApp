@@ -18,7 +18,6 @@ String _longDate(DateTime value) => DateFormat('EEE, MMM d, yyyy').format(value)
 String _shortTime(DateTime value) => DateFormat('h:mm a').format(value);
 DateTime _startOfDay(DateTime value) => DateTime(value.year, value.month, value.day);
 String _dayKey(DateTime value) => DateFormat('yyyy-MM-dd').format(value.toLocal());
-String _trendDateLabel(DateTime value) => DateFormat('d MMM').format(value);
 String _relativeTime(DateTime value) {
   final diff = DateTime.now().difference(value);
   if (diff.inMinutes < 1) return 'just now';
@@ -533,9 +532,16 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
   final _dosageController = TextEditingController();
   final _stockController = TextEditingController();
   final _notesController = TextEditingController();
+  final _timeDisplayController = TextEditingController();
   TimeOfDay? _timeOfDay;
+  DateTime _selectedDay = _startOfDay(DateTime.now());
   bool _saving = false;
   bool _showAddMedicationForm = false;
+
+  List<DateTime> get _weekDays {
+    final startOfWeek = _selectedDay.subtract(Duration(days: _selectedDay.weekday - 1));
+    return List.generate(7, (index) => startOfWeek.add(Duration(days: index)));
+  }
 
   @override
   void dispose() {
@@ -543,13 +549,170 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
     _dosageController.dispose();
     _stockController.dispose();
     _notesController.dispose();
+    _timeDisplayController.dispose();
     super.dispose();
   }
 
   Future<void> _pickTime() async {
     final picked = await showTimePicker(context: context, initialTime: _timeOfDay ?? TimeOfDay.now());
     if (picked != null) {
-      setState(() => _timeOfDay = picked);
+      setState(() {
+        _timeOfDay = picked;
+        _timeDisplayController.text = picked.format(context);
+      });
+    }
+  }
+
+  Future<void> _pickSelectedDay() async {
+    final picked = await showDatePicker(
+      context: context,
+      firstDate: DateTime.now().subtract(const Duration(days: 3650)),
+      lastDate: DateTime.now().add(const Duration(days: 3650)),
+      initialDate: _selectedDay,
+    );
+    if (picked != null) {
+      setState(() => _selectedDay = _startOfDay(picked));
+    }
+  }
+
+  Future<void> _openMedicationEditor(MedicationEntry medication) async {
+    final formKey = GlobalKey<FormState>();
+    final nameController = TextEditingController(text: medication.name);
+    final dosageController = TextEditingController(text: medication.dosage);
+    final stockController = TextEditingController(text: medication.currentStock?.toString() ?? '');
+    final notesController = TextEditingController(text: medication.notes);
+    var timeOfDay = TimeOfDay(hour: medication.scheduledHour, minute: medication.scheduledMinute);
+    var saving = false;
+
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (dialogContext, setDialogState) {
+              Future<void> submit() async {
+                if (!formKey.currentState!.validate()) return;
+                setDialogState(() => saving = true);
+                try {
+                  await ref.read(repositoryProvider).updateMedication(
+                        uid: widget.uid,
+                        medication: MedicationEntry(
+                          id: medication.id,
+                          name: nameController.text.trim(),
+                          dosage: dosageController.text.trim(),
+                          currentStock: int.parse(stockController.text.trim()),
+                          scheduledHour: timeOfDay.hour,
+                          scheduledMinute: timeOfDay.minute,
+                          notes: notesController.text.trim(),
+                          status: medication.status,
+                          lastTakenAt: medication.lastTakenAt,
+                          lastTakenDateKey: medication.lastTakenDateKey,
+                          lastMissedDateKey: medication.lastMissedDateKey,
+                          createdAt: medication.createdAt,
+                          updatedAt: medication.updatedAt,
+                        ),
+                      );
+                  ref.invalidate(medicationsProvider(widget.uid));
+                  ref.invalidate(activityLogsProvider(widget.uid));
+                  if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+                } catch (error) {
+                  if (dialogContext.mounted) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text(error.toString())));
+                  }
+                } finally {
+                  if (dialogContext.mounted) {
+                    setDialogState(() => saving = false);
+                  }
+                }
+              }
+
+              return AlertDialog(
+                title: const Text('Edit Medication'),
+                content: SingleChildScrollView(
+                  child: Form(
+                    key: formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CareCrewTextField(
+                          controller: nameController,
+                          label: 'Medicine Name',
+                          hintText: 'e.g. Metformin',
+                          validator: (value) => value == null || value.trim().isEmpty ? 'Medication name required' : null,
+                        ),
+                        const SizedBox(height: 14),
+                        CareCrewTextField(
+                          controller: dosageController,
+                          label: 'Dosage',
+                          hintText: '500mg • 1 pill',
+                          validator: (value) => value == null || value.trim().isEmpty ? 'Dosage required' : null,
+                        ),
+                        const SizedBox(height: 14),
+                        CareCrewTextField(
+                          controller: stockController,
+                          label: 'Current Stock',
+                          hintText: 'e.g. 12',
+                          keyboardType: TextInputType.number,
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) return 'Current stock required';
+                            final parsed = int.tryParse(value.trim());
+                            if (parsed == null || parsed < 0) return 'Enter a valid stock count';
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 14),
+                        CareCrewTextField(
+                          controller: TextEditingController(text: timeOfDay.format(context)),
+                          label: 'Time',
+                          hintText: 'Choose time',
+                          readOnly: true,
+                          onTap: () async {
+                            final picked = await showTimePicker(context: dialogContext, initialTime: timeOfDay);
+                            if (picked != null) {
+                              setDialogState(() => timeOfDay = picked);
+                            }
+                          },
+                          suffixIcon: IconButton(
+                            onPressed: () async {
+                              final picked = await showTimePicker(context: dialogContext, initialTime: timeOfDay);
+                              if (picked != null) {
+                                setDialogState(() => timeOfDay = picked);
+                              }
+                            },
+                            icon: const Icon(Icons.schedule_rounded),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        CareCrewTextField(
+                          controller: notesController,
+                          label: 'Notes',
+                          hintText: 'With food, before bedtime, etc.',
+                          maxLines: 3,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: saving ? null : () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: saving ? null : submit,
+                    child: Text(saving ? 'Saving...' : 'Update'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      nameController.dispose();
+      dosageController.dispose();
+      stockController.dispose();
+      notesController.dispose();
     }
   }
 
@@ -561,6 +724,7 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
     }
     setState(() => _saving = true);
     try {
+      final now = DateTime.now();
       await ref.read(repositoryProvider).saveMedication(
             uid: widget.uid,
             medication: MedicationEntry(
@@ -572,13 +736,17 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
               scheduledMinute: _timeOfDay!.minute,
               notes: _notesController.text.trim(),
               status: 'pending',
+              createdAt: DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day, now.hour, now.minute, now.second),
             ),
           );
       _nameController.clear();
       _dosageController.clear();
       _stockController.clear();
       _notesController.clear();
-      setState(() => _timeOfDay = null);
+      setState(() {
+        _timeOfDay = null;
+        _timeDisplayController.clear();
+      });
       ref.invalidate(medicationsProvider(widget.uid));
       ref.invalidate(activityLogsProvider(widget.uid));
     } catch (error) {
@@ -592,16 +760,10 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
   Widget build(BuildContext context) {
     final medsAsync = ref.watch(medicationsProvider(widget.uid));
     final meds = medsAsync.value ?? const <MedicationEntry>[];
+    final selectedDayMeds = meds.where((medication) => medication.createdAt != null && DateUtils.isSameDay(medication.createdAt!, _selectedDay)).toList();
     final lowStockMeds = meds.where((medication) => medication.hasLowStock).toList()
       ..sort((a, b) => (a.currentStock ?? 9999).compareTo(b.currentStock ?? 9999));
-    final grouped = <String, List<MedicationEntry>>{};
-    for (final medication in meds) {
-      grouped.putIfAbsent(medication.bucket, () => []).add(medication);
-    }
-    final order = ['Morning', 'Afternoon', 'Evening'];
-    final now = DateTime.now();
-    final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
-    final weekDays = List.generate(7, (index) => startOfWeek.add(Duration(days: index)));
+    final weekDays = _weekDays;
 
     return Scaffold(
       appBar: AppBar(
@@ -624,41 +786,123 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
         padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
         children: [
           Text(
-            DateFormat('EEEE, MMM d, yyyy').format(now),
+            DateFormat('EEEE, MMM d, yyyy').format(_selectedDay),
             style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Showing entries added on ${DateFormat('MMM d, yyyy').format(_selectedDay)}',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: const Color(0xFF5E779B)),
+                ),
+              ),
+              IconButton(
+                onPressed: _pickSelectedDay,
+                icon: const Icon(Icons.calendar_month_rounded),
+                tooltip: 'Pick a day',
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: weekDays.map((dayDate) {
-              final selected = DateUtils.isSameDay(dayDate, now);
-              return Column(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: selected ? const Color(0xFF103A86) : Colors.transparent,
-                      borderRadius: BorderRadius.circular(14),
+              final selected = DateUtils.isSameDay(dayDate, _selectedDay);
+              return GestureDetector(
+                onTap: () => setState(() => _selectedDay = _startOfDay(dayDate)),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: selected ? const Color(0xFF103A86) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        '${dayDate.day}',
+                        style: TextStyle(
+                          color: selected ? Colors.white : const Color(0xFF103A86),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
                     ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      '${dayDate.day}',
-                      style: TextStyle(
-                        color: selected ? Colors.white : const Color(0xFF103A86),
-                        fontWeight: FontWeight.w800,
-                        fontSize: 14,
+                    const SizedBox(height: 3),
+                    Text(
+                      DateFormat('EEE').format(dayDate).toUpperCase(),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(color: const Color(0xFF5E779B)),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 14),
+          AppSectionCard(
+            borderColor: const Color(0xFFDDE9F6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SectionHeader(
+                  title: 'Added on ${DateFormat('MMM d').format(_selectedDay)}',
+                  action: const SoftChip(label: 'Calendar linked'),
+                ),
+                const SizedBox(height: 10),
+                if (selectedDayMeds.isEmpty)
+                  const Text('No medications were added on this day.')
+                else
+                  ...selectedDayMeds.map(
+                    (medication) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: medication.status == 'missed'
+                              ? const Color(0xFFFCE7E8)
+                              : medication.status == 'taken'
+                                  ? const Color(0xFFE6F7E9)
+                                  : const Color(0xFFF8FBFF),
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              backgroundColor: const Color(0xFF103A86),
+                              child: Text(
+                                medication.name.isNotEmpty ? medication.name[0].toUpperCase() : 'M',
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(medication.name, style: const TextStyle(fontWeight: FontWeight.w800)),
+                                  Text('${medication.dosage} • ${medication.timeLabel}'),
+                                  if (medication.notes.isNotEmpty) ...[
+                                    const SizedBox(height: 4),
+                                    Text(medication.notes),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () => _openMedicationEditor(medication),
+                              icon: const Icon(Icons.edit_rounded),
+                              tooltip: 'Edit medication',
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    DateFormat('EEE').format(dayDate).toUpperCase(),
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(color: const Color(0xFF5E779B)),
-                  ),
-                ],
-              );
-            }).toList(),
+              ],
+            ),
           ),
           const SizedBox(height: 14),
           if (lowStockMeds.isNotEmpty) ...[
@@ -698,102 +942,94 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
             ),
             const SizedBox(height: 14),
           ],
-          if (meds.isEmpty)
+          if (selectedDayMeds.isEmpty)
             const EmptyStateCard(
-              title: 'No medications yet',
-              subtitle: 'Add the patient\'s medicine schedule to track taken and missed doses.',
+              title: 'No medications for this day',
+              subtitle: 'Switch the date or add a medicine entry for the selected day.',
               icon: Icons.medication_liquid_outlined,
             )
           else
-            ...order.expand((bucket) {
-              final bucketMeds = grouped[bucket] ?? const <MedicationEntry>[];
-              if (bucketMeds.isEmpty) return [const SizedBox.shrink()];
-              return [
-                SectionHeader(title: bucket),
-                const SizedBox(height: 10),
-                ...bucketMeds.map(
-                  (medication) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: AppSectionCard(
-                      backgroundColor: medication.status == 'missed'
-                          ? const Color(0xFFFCE7E8)
-                          : medication.status == 'taken'
-                              ? const Color(0xFFE6F7E9)
-                              : Colors.white,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+            ...selectedDayMeds.map(
+              (medication) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: AppSectionCard(
+                  backgroundColor: medication.status == 'missed'
+                      ? const Color(0xFFFCE7E8)
+                      : medication.status == 'taken'
+                          ? const Color(0xFFE6F7E9)
+                          : Colors.white,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 22,
-                                backgroundColor: const Color(0xFF103A86),
-                                child: Text(
-                                  medication.name.isNotEmpty ? medication.name[0].toUpperCase() : 'M',
-                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(medication.name, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
-                                    Text(medication.dosage),
-                                  ],
-                                ),
-                              ),
-                              SoftChip(
-                                label: medication.status,
-                                color: _statusColor(medication.status).withValues(alpha: 0.16),
-                                textColor: _statusColor(medication.status),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text('Time • ${medication.timeLabel}'),
-                          if (medication.currentStock != null) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              'Current stock • ${medication.currentStock}',
-                              style: Theme.of(context).textTheme.bodySmall,
+                          CircleAvatar(
+                            radius: 22,
+                            backgroundColor: const Color(0xFF103A86),
+                            child: Text(
+                              medication.name.isNotEmpty ? medication.name[0].toUpperCase() : 'M',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
                             ),
-                          ],
-                          if (medication.notes.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(medication.notes),
-                          ],
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: CareCrewPrimaryButton(
-                                  label: 'Mark as Taken',
-                                  onPressed: medication.canBeMarkedTaken
-                                      ? () async {
-                                          await ref.read(repositoryProvider).markMedicationTaken(uid: widget.uid, medication: medication);
-                                          ref.invalidate(medicationsProvider(widget.uid));
-                                          ref.invalidate(activityLogsProvider(widget.uid));
-                                        }
-                                      : null,
-                                  leading: const Icon(Icons.check_circle_rounded),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              IconButton.filled(
-                                onPressed: () {},
-                                icon: const Icon(Icons.download_rounded),
-                                style: IconButton.styleFrom(backgroundColor: const Color(0xFFE8EEF8), foregroundColor: const Color(0xFF103A86)),
-                              ),
-                            ],
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(medication.name, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+                                Text(medication.dosage),
+                              ],
+                            ),
+                          ),
+                          SoftChip(
+                            label: medication.status,
+                            color: _statusColor(medication.status).withValues(alpha: 0.16),
+                            textColor: _statusColor(medication.status),
                           ),
                         ],
                       ),
-                    ),
+                      const SizedBox(height: 8),
+                      Text('Time • ${medication.timeLabel}'),
+                      if (medication.currentStock != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'Current stock • ${medication.currentStock}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                      if (medication.notes.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(medication.notes),
+                      ],
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: CareCrewPrimaryButton(
+                              label: 'Mark as Taken',
+                              onPressed: medication.canBeMarkedTaken
+                                  ? () async {
+                                      await ref.read(repositoryProvider).markMedicationTaken(uid: widget.uid, medication: medication);
+                                      ref.invalidate(medicationsProvider(widget.uid));
+                                      ref.invalidate(activityLogsProvider(widget.uid));
+                                    }
+                                  : null,
+                              leading: const Icon(Icons.check_circle_rounded),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          IconButton.filled(
+                            onPressed: () => _openMedicationEditor(medication),
+                            icon: const Icon(Icons.edit_rounded),
+                            style: IconButton.styleFrom(backgroundColor: const Color(0xFFE8EEF8), foregroundColor: const Color(0xFF103A86)),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-              ];
-            }),
+              ),
+            ),
           const SizedBox(height: 8),
           AppSectionCard(
             child: InkWell(
@@ -854,7 +1090,7 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
                     ),
                     const SizedBox(height: 14),
                     CareCrewTextField(
-                      controller: TextEditingController(text: _timeOfDay == null ? '' : _timeOfDay!.format(context)),
+                      controller: _timeDisplayController,
                       label: 'Time',
                       hintText: 'Choose time',
                       readOnly: true,
@@ -903,9 +1139,16 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
   final _systolicController = TextEditingController();
   final _diastolicController = TextEditingController();
   final _notesController = TextEditingController();
+  final _selectedDayDisplayController = TextEditingController();
   int _painLevel = 3;
   PlatformFile? _pickedPhoto;
+  DateTime _selectedDay = _startOfDay(DateTime.now());
   bool _saving = false;
+
+  List<DateTime> get _weekDays {
+    final startOfWeek = _selectedDay.subtract(Duration(days: _selectedDay.weekday - 1));
+    return List.generate(7, (index) => startOfWeek.add(Duration(days: index)));
+  }
 
   @override
   void dispose() {
@@ -913,6 +1156,7 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
     _systolicController.dispose();
     _diastolicController.dispose();
     _notesController.dispose();
+    _selectedDayDisplayController.dispose();
     super.dispose();
   }
 
@@ -923,6 +1167,161 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
     }
   }
 
+  Future<void> _pickSelectedDay() async {
+    final picked = await showDatePicker(
+      context: context,
+      firstDate: DateTime.now().subtract(const Duration(days: 3650)),
+      lastDate: DateTime.now().add(const Duration(days: 3650)),
+      initialDate: _selectedDay,
+    );
+    if (picked != null) {
+      setState(() {
+        _selectedDay = _startOfDay(picked);
+        _selectedDayDisplayController.text = _shortDate(_selectedDay);
+      });
+    }
+  }
+
+  Future<void> _openVitalEditor(VitalEntry entry) async {
+    final formKey = GlobalKey<FormState>();
+    final temperatureController = TextEditingController(text: entry.temperature.toStringAsFixed(1));
+    final systolicController = TextEditingController(text: entry.systolic.toString());
+    final diastolicController = TextEditingController(text: entry.diastolic.toString());
+    final notesController = TextEditingController(text: entry.notes);
+    var painLevel = entry.painLevel;
+    var saving = false;
+
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (dialogContext, setDialogState) {
+              Future<void> submit() async {
+                if (!formKey.currentState!.validate()) return;
+                setDialogState(() => saving = true);
+                try {
+                  await ref.read(repositoryProvider).updateVitalEntry(
+                        uid: widget.uid,
+                        entry: VitalEntry(
+                          id: entry.id,
+                          temperature: double.parse(temperatureController.text.trim()),
+                          systolic: int.parse(systolicController.text.trim()),
+                          diastolic: int.parse(diastolicController.text.trim()),
+                          painLevel: painLevel,
+                          notes: notesController.text.trim(),
+                          photoUrl: entry.photoUrl,
+                          photoPath: entry.photoPath,
+                          createdAt: entry.createdAt,
+                        ),
+                      );
+                  ref.invalidate(vitalsProvider(widget.uid));
+                  ref.invalidate(activityLogsProvider(widget.uid));
+                  if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+                } catch (error) {
+                  if (dialogContext.mounted) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text(error.toString())));
+                  }
+                } finally {
+                  if (dialogContext.mounted) {
+                    setDialogState(() => saving = false);
+                  }
+                }
+              }
+
+              return AlertDialog(
+                title: const Text('Edit Vitals'),
+                content: SingleChildScrollView(
+                  child: Form(
+                    key: formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CareCrewTextField(
+                          controller: temperatureController,
+                          label: 'Temperature (°F)',
+                          hintText: '98.6',
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          validator: (value) => value == null || double.tryParse(value.trim()) == null ? 'Enter a valid temperature' : null,
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: CareCrewTextField(
+                                controller: systolicController,
+                                label: 'Systolic',
+                                hintText: '120',
+                                keyboardType: TextInputType.number,
+                                validator: (value) => value == null || int.tryParse(value.trim()) == null ? 'Enter systolic' : null,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: CareCrewTextField(
+                                controller: diastolicController,
+                                label: 'Diastolic',
+                                hintText: '80',
+                                keyboardType: TextInputType.number,
+                                validator: (value) => value == null || int.tryParse(value.trim()) == null ? 'Enter diastolic' : null,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Pain Level', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 8),
+                            Slider(
+                              value: painLevel.toDouble(),
+                              min: 0,
+                              max: 10,
+                              divisions: 10,
+                              label: painLevel.toString(),
+                              onChanged: (value) => setDialogState(() => painLevel = value.round()),
+                            ),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: Text('$painLevel / 10', style: const TextStyle(fontWeight: FontWeight.w800)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        CareCrewTextField(
+                          controller: notesController,
+                          label: 'Additional Notes',
+                          hintText: 'Describe symptoms or observations',
+                          maxLines: 3,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: saving ? null : () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: saving ? null : submit,
+                    child: Text(saving ? 'Saving...' : 'Update'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      temperatureController.dispose();
+      systolicController.dispose();
+      diastolicController.dispose();
+      notesController.dispose();
+    }
+  }
+
   Future<void> _saveVitals() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
@@ -930,6 +1329,7 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
     String? photoUrl;
     String? photoPath;
     try {
+      final now = DateTime.now();
       if (_pickedPhoto != null) {
         final uploaded = await ref.read(repositoryProvider).uploadVitalPhoto(
               uid: widget.uid,
@@ -950,6 +1350,7 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
               notes: _notesController.text.trim(),
               photoUrl: photoUrl,
               photoPath: photoPath,
+              createdAt: DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day, now.hour, now.minute, now.second),
             ),
           );
       _temperatureController.clear();
@@ -970,15 +1371,20 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _selectedDayDisplayController.text = _shortDate(_selectedDay);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final vitalsAsync = ref.watch(vitalsProvider(widget.uid));
     final thresholdsAsync = ref.watch(thresholdsProvider(widget.uid));
     final latestVitals = vitalsAsync.value ?? const <VitalEntry>[];
     final thresholds = thresholdsAsync.value;
-    final latest = latestVitals.isNotEmpty ? latestVitals.first : null;
-    final now = DateTime.now();
-    final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
-    final weekDays = List.generate(7, (index) => startOfWeek.add(Duration(days: index)));
+    final selectedVitals = latestVitals.where((vital) => vital.createdAt != null && DateUtils.isSameDay(vital.createdAt!, _selectedDay)).toList();
+    final selectedLatest = selectedVitals.isNotEmpty ? selectedVitals.first : null;
+    final weekDays = _weekDays;
 
     return Scaffold(
       appBar: AppBar(
@@ -998,61 +1404,151 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
         padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
         children: [
           Text(
-            DateFormat('EEEE, MMM d, yyyy').format(now),
+            DateFormat('EEEE, MMM d, yyyy').format(_selectedDay),
             style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Showing entries added on ${DateFormat('MMM d, yyyy').format(_selectedDay)}',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: const Color(0xFF5E779B)),
+                ),
+              ),
+              IconButton(
+                onPressed: _pickSelectedDay,
+                icon: const Icon(Icons.calendar_month_rounded),
+                tooltip: 'Pick a day',
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: weekDays.map((dayDate) {
-              final selected = DateUtils.isSameDay(dayDate, now);
-              return Column(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: selected ? const Color(0xFF103A86) : Colors.transparent,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      '${dayDate.day}',
-                      style: TextStyle(
-                        color: selected ? Colors.white : const Color(0xFF103A86),
-                        fontWeight: FontWeight.w800,
-                        fontSize: 14,
+              final selected = DateUtils.isSameDay(dayDate, _selectedDay);
+              return GestureDetector(
+                onTap: () => setState(() => _selectedDay = _startOfDay(dayDate)),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: selected ? const Color(0xFF103A86) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        '${dayDate.day}',
+                        style: TextStyle(
+                          color: selected ? Colors.white : const Color(0xFF103A86),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    DateFormat('EEE').format(dayDate).toUpperCase(),
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(color: const Color(0xFF5E779B)),
-                  ),
-                ],
+                    const SizedBox(height: 3),
+                    Text(
+                      DateFormat('EEE').format(dayDate).toUpperCase(),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(color: const Color(0xFF5E779B)),
+                    ),
+                  ],
+                ),
               );
             }).toList(),
           ),
           const SizedBox(height: 14),
-          if (latest != null)
+          AppSectionCard(
+            borderColor: const Color(0xFFDDE9F6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SectionHeader(
+                  title: 'Vitals added on ${DateFormat('MMM d').format(_selectedDay)}',
+                  action: const SoftChip(label: 'Calendar linked'),
+                ),
+                const SizedBox(height: 10),
+                if (selectedVitals.isEmpty)
+                  const Text('No vitals were added on this day.')
+                else
+                  ...selectedVitals.map(
+                    (entry) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: AppSectionCard(
+                        borderColor: entry.hasAlert ? const Color(0xFFB01E24) : const Color(0xFFDDE9F6),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                CircleAvatar(
+                                  backgroundColor: entry.hasAlert ? const Color(0xFFF7D2D4) : const Color(0xFFE6F7E9),
+                                  child: Icon(entry.hasAlert ? Icons.priority_high_rounded : Icons.favorite_rounded, color: entry.hasAlert ? const Color(0xFF8A1120) : const Color(0xFF1E7E3E)),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        entry.hasAlert ? (entry.alertLabel ?? 'Alert') : 'Vitals logged',
+                                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                                      ),
+                                      Text(_relativeTime(entry.createdAt ?? DateTime.now())),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: () => _openVitalEditor(entry),
+                                  icon: const Icon(Icons.edit_rounded),
+                                  tooltip: 'Edit vitals',
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Text('Temperature: ${entry.temperature.toStringAsFixed(1)}°F'),
+                            Text('Blood Pressure: ${entry.systolic}/${entry.diastolic} mmHg'),
+                            Text('Pain Level: ${entry.painLevel}/10'),
+                            if (entry.notes.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text(entry.notes),
+                            ],
+                            if (entry.photoUrl != null) ...[
+                              const SizedBox(height: 10),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(18),
+                                child: Image.network(entry.photoUrl!, height: 160, width: double.infinity, fit: BoxFit.cover),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (selectedLatest != null)
             AppSectionCard(
-              borderColor: latest.hasAlert ? const Color(0xFFB01E24) : const Color(0xFFDDE9F6),
+              borderColor: selectedLatest.hasAlert ? const Color(0xFFB01E24) : const Color(0xFFDDE9F6),
               child: Row(
                 children: [
                   CircleAvatar(
                     radius: 22,
-                    backgroundColor: latest.hasAlert ? const Color(0xFFF7D2D4) : const Color(0xFFE6F7E9),
-                    child: Icon(latest.hasAlert ? Icons.warning_amber_rounded : Icons.verified_rounded, color: latest.hasAlert ? const Color(0xFF8A1120) : const Color(0xFF1E7E3E)),
+                    backgroundColor: selectedLatest.hasAlert ? const Color(0xFFF7D2D4) : const Color(0xFFE6F7E9),
+                    child: Icon(selectedLatest.hasAlert ? Icons.warning_amber_rounded : Icons.verified_rounded, color: selectedLatest.hasAlert ? const Color(0xFF8A1120) : const Color(0xFF1E7E3E)),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(latest.hasAlert ? latest.alertLabel ?? 'Alert' : 'Vitals within range', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+                        Text(selectedLatest.hasAlert ? selectedLatest.alertLabel ?? 'Alert' : 'Vitals within range', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
                         const SizedBox(height: 4),
-                        Text('Logged ${_relativeTime(latest.createdAt ?? DateTime.now())}'),
+                        Text('Logged ${_relativeTime(selectedLatest.createdAt ?? DateTime.now())}'),
                       ],
                     ),
                   ),
@@ -1287,6 +1783,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final meds = ref.watch(medicationsProvider(widget.uid)).value ?? const <MedicationEntry>[];
     final appointments = ref.watch(appointmentsProvider(widget.uid)).value ?? const <AppointmentEntry>[];
     final vitals = ref.watch(vitalsProvider(widget.uid)).value ?? const <VitalEntry>[];
+    final patient = ref.watch(patientProfileProvider(widget.uid)).value;
     final repo = ref.read(repositoryProvider);
     final today = _startOfDay(DateTime.now());
     final trendDays = List.generate(7, (index) => today.subtract(Duration(days: 6 - index)));
@@ -1299,14 +1796,16 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final attendance = repo.appointmentAttendancePercent(appointments);
     final missedCount = recentLogs.where((log) => log.type == 'medication_missed').length;
     final alerts = recentLogs.where((log) => log.type == 'critical_alert').toList();
-    final medicationsPerDay = meds.length;
-    final weeklyBars = List.generate(7, (index) {
-      final day = trendDays[index];
-      final key = _dayKey(day);
-      final taken = logs.where((log) => log.type == 'medication_taken' && log.createdAt != null && _dayKey(log.createdAt!) == key).length;
-      final totalScheduled = math.max(medicationsPerDay, 1);
-      return (math.min(taken, totalScheduled) / totalScheduled) * 100;
-    });
+    String? mostMissedMedicationName;
+    var mostMissedMedicationCount = 0;
+    for (final medication in meds) {
+      final missedForMedication = recentLogs.where((log) => log.type == 'medication_missed' && log.details.contains(medication.name)).length;
+      if (missedForMedication > mostMissedMedicationCount) {
+        mostMissedMedicationCount = missedForMedication;
+        mostMissedMedicationName = medication.name;
+      }
+    }
+    final latestRecentVital = recentVitals.isNotEmpty ? recentVitals.first : null;
     final vitalsByDay = <String, VitalEntry>{};
     for (final entry in recentVitals) {
       final createdAt = entry.createdAt;
@@ -1396,54 +1895,31 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SectionHeader(title: 'Medication Adherence'),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    height: 220,
-                    child: BarChart(
-                      BarChartData(
-                        alignment: BarChartAlignment.spaceAround,
-                        maxY: 100,
-                        borderData: FlBorderData(show: false),
-                        gridData: const FlGridData(show: false),
-                        titlesData: FlTitlesData(
-                          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          bottomTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                              showTitles: true,
-                              reservedSize: 26,
-                              getTitlesWidget: (value, meta) {
-                                final index = value.toInt().clamp(0, 6);
-                                final day = trendDays[index];
-                                return Padding(
-                                  padding: const EdgeInsets.only(top: 6),
-                                  child: Text(_trendDateLabel(day), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11)),
-                                );
-                              },
-                            ),
-                          ),
+                  SectionHeader(title: 'Medication Adherence', action: const SoftChip(label: 'Summary only')),
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF9F2C8),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Medication adherence: $adherence%', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF103A86))),
+                        const SizedBox(height: 4),
+                        Text('Missed doses (30 days): $missedCount', style: Theme.of(context).textTheme.bodyMedium),
+                        const SizedBox(height: 4),
+                        Text(
+                          mostMissedMedicationName == null || mostMissedMedicationCount == 0
+                              ? 'Most missed: None'
+                              : 'Most missed: $mostMissedMedicationName ($mostMissedMedicationCount time${mostMissedMedicationCount == 1 ? '' : 's'})',
+                          style: Theme.of(context).textTheme.bodyMedium,
                         ),
-                        barGroups: List.generate(
-                          weeklyBars.length,
-                          (index) => BarChartGroupData(
-                            x: index,
-                            barRods: [
-                              BarChartRodData(
-                                toY: weeklyBars[index],
-                                color: weeklyBars[index] < 50 ? const Color(0xFF8A1120) : const Color(0xFF103A86),
-                                width: 22,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Text('Missed doses (30 days): $missedCount', style: Theme.of(context).textTheme.bodyMedium),
                 ],
               ),
             ),
@@ -1501,11 +1977,16 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               ),
             const SizedBox(height: 16),
             CareCrewPrimaryButton(
-              label: 'Activity Feed',
+              label: 'Activity Feed →',
               leading: const Icon(Icons.receipt_long_rounded),
               onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ActivityScreen(uid: widget.uid))),
             ),
           ] else ...[
+            Text(
+              'Summary for ${patient?.fullName.isNotEmpty == true ? patient!.fullName : 'this care account'} (Last 7 Days)',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(color: const Color(0xFF4A678A), fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 12),
             AppSectionCard(
               borderColor: alerts.isEmpty ? const Color(0xFFDDE9F6) : const Color(0xFF8A1120),
               child: Column(
@@ -1561,6 +2042,33 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                         ),
                       ),
                     ),
+                  if (missedCount > 0) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF7DDE0),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$missedCount Missed Doses (Last 30 Days)',
+                            style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF8A1120)),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            mostMissedMedicationName == null || mostMissedMedicationCount == 0
+                                ? 'Most missed: None'
+                                : 'Most missed: $mostMissedMedicationName ($mostMissedMedicationCount time${mostMissedMedicationCount == 1 ? '' : 's'})',
+                            style: const TextStyle(color: Color(0xFF8A1120)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1570,52 +2078,29 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SectionHeader(title: '7-Day Trend'),
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    height: 180,
-                    child: LineChart(
-                      LineChartData(
-                        gridData: const FlGridData(show: false),
-                        borderData: FlBorderData(show: false),
-                        titlesData: FlTitlesData(
-                          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          bottomTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                              showTitles: true,
-                              reservedSize: 24,
-                              getTitlesWidget: (value, meta) {
-                                final labels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-                                final index = value.toInt().clamp(0, 6);
-                                return Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(labels[index], style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11)),
-                                );
-                              },
-                            ),
-                          ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _TrendSummaryCard(
+                          label: 'Blood Pressure',
+                          value: latestRecentVital == null ? '0/0' : '${latestRecentVital.systolic}/${latestRecentVital.diastolic}',
+                          color: const Color(0xFFDDE3F7),
+                          points: systolicSpots.map((spot) => spot.y).toList(),
+                          valueStyleSize: 20,
                         ),
-                        lineBarsData: [
-                          LineChartBarData(
-                            spots: systolicSpots,
-                            isCurved: true,
-                            barWidth: 3,
-                            color: const Color(0xFF103A86),
-                            dotData: const FlDotData(show: true),
-                          ),
-                          LineChartBarData(
-                            spots: temperatureSpots,
-                            isCurved: true,
-                            barWidth: 3,
-                            color: const Color(0xFFF0C84B),
-                            dotData: const FlDotData(show: true),
-                          ),
-                        ],
-                        minX: 0,
-                        maxX: 6,
                       ),
-                    ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _TrendSummaryCard(
+                          label: 'Temperature',
+                          value: latestRecentVital == null ? '0.0°' : '${latestRecentVital.temperature.toStringAsFixed(1)}°F',
+                          color: const Color(0xFFFFF6D5),
+                          points: temperatureSpots.map((spot) => spot.y).toList(),
+                          valueStyleSize: 20,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1643,6 +2128,104 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         ],
       ),
     );
+  }
+}
+
+class _TrendSummaryCard extends StatelessWidget {
+  const _TrendSummaryCard({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.points,
+    required this.valueStyleSize,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+  final List<double> points;
+  final double valueStyleSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF6B7E9B)),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(fontSize: valueStyleSize, fontWeight: FontWeight.w900, color: const Color(0xFF103A86)),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 34,
+            width: double.infinity,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return CustomPaint(
+                  size: Size(constraints.maxWidth, 34),
+                  painter: _SparklinePainter(
+                    points: points,
+                    color: const Color(0xFF103A86),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SparklinePainter extends CustomPainter {
+  const _SparklinePainter({required this.points, required this.color});
+
+  final List<double> points;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.isEmpty) return;
+
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final maxValue = points.reduce(math.max);
+    final minValue = points.reduce(math.min);
+    final range = (maxValue - minValue).abs() < 0.001 ? 1.0 : maxValue - minValue;
+    final path = Path();
+    for (var index = 0; index < points.length; index++) {
+      final x = points.length == 1 ? size.width / 2 : (index / (points.length - 1)) * size.width;
+      final normalized = (points[index] - minValue) / range;
+      final y = size.height - (normalized * (size.height - 4)) - 2;
+      if (index == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparklinePainter oldDelegate) {
+    return oldDelegate.points != points || oldDelegate.color != color;
   }
 }
 
@@ -2371,6 +2954,8 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
   final _doctorController = TextEditingController();
   final _locationController = TextEditingController();
   final _notesController = TextEditingController();
+  final _dateController = TextEditingController();
+  final _timeController = TextEditingController();
   DateTime? _date;
   TimeOfDay? _time;
   AppointmentStatus _status = AppointmentStatus.scheduled;
@@ -2381,17 +2966,29 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
     _doctorController.dispose();
     _locationController.dispose();
     _notesController.dispose();
+    _dateController.dispose();
+    _timeController.dispose();
     super.dispose();
   }
 
   Future<void> _pickDate() async {
     final picked = await showDatePicker(context: context, firstDate: DateTime.now().subtract(const Duration(days: 3650)), lastDate: DateTime.now().add(const Duration(days: 3650)), initialDate: _date ?? DateTime.now());
-    if (picked != null) setState(() => _date = picked);
+    if (picked != null) {
+      setState(() {
+        _date = picked;
+        _dateController.text = _shortDate(picked);
+      });
+    }
   }
 
   Future<void> _pickTime() async {
     final picked = await showTimePicker(context: context, initialTime: _time ?? TimeOfDay.now());
-    if (picked != null) setState(() => _time = picked);
+    if (picked != null) {
+      setState(() {
+        _time = picked;
+        _timeController.text = picked.format(context);
+      });
+    }
   }
 
   Future<void> _saveAppointment() async {
@@ -2421,6 +3018,8 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
         _date = null;
         _time = null;
         _status = AppointmentStatus.scheduled;
+        _dateController.clear();
+        _timeController.clear();
       });
       ref.invalidate(appointmentsProvider(widget.uid));
       ref.invalidate(activityLogsProvider(widget.uid));
@@ -2501,7 +3100,7 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
                     children: [
                       Expanded(
                         child: CareCrewTextField(
-                          controller: TextEditingController(text: _date == null ? '' : _shortDate(_date!)),
+                          controller: _dateController,
                           label: 'Date',
                           hintText: 'Choose date',
                           readOnly: true,
@@ -2512,7 +3111,7 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: CareCrewTextField(
-                          controller: TextEditingController(text: _time == null ? '' : _time!.format(context)),
+                          controller: _timeController,
                           label: 'Time',
                           hintText: 'Choose time',
                           readOnly: true,
@@ -2902,17 +3501,23 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
 
     if (profile != null && !_loaded) {
       _loaded = true;
-      _nameController.text = profile.displayName;
-      _mobileController.text = profile.mobileNumber;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _nameController.text = profile.displayName;
+        _mobileController.text = profile.mobileNumber;
+      });
     }
     if (patient != null && !_patientLoaded) {
       _patientLoaded = true;
-      _patientNameController.text = patient.fullName;
-      _patientAgeController.text = patient.age.toString();
-      _patientConditionController.text = patient.condition;
-      _patientEmergencyContactController.text = patient.emergencyContact;
-      _patientDischargeDate = patient.dischargeDate;
-      _patientDischargeController.text = _shortDate(patient.dischargeDate);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _patientNameController.text = patient.fullName;
+        _patientAgeController.text = patient.age.toString();
+        _patientConditionController.text = patient.condition;
+        _patientEmergencyContactController.text = patient.emergencyContact;
+        _patientDischargeDate = patient.dischargeDate;
+        _patientDischargeController.text = _shortDate(patient.dischargeDate);
+      });
     }
 
     return Scaffold(

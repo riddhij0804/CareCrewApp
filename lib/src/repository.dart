@@ -281,13 +281,15 @@ class CareCrewRepository {
   }
 
   Stream<List<MedicationEntry>> watchMedications(String uid) {
-    return _subCollection(uid, 'medications')
-        .orderBy('scheduledHour')
-        .orderBy('scheduledMinute')
-        .snapshots()
-        .map(
-          (snapshot) => snapshot.docs.map((doc) => MedicationEntry.fromMap(doc.id, doc.data())).toList(),
-        );
+    return _subCollection(uid, 'medications').snapshots().map((snapshot) {
+      final meds = snapshot.docs.map((doc) => MedicationEntry.fromMap(doc.id, doc.data())).toList();
+      meds.sort((a, b) {
+        final hourCompare = a.scheduledHour.compareTo(b.scheduledHour);
+        if (hourCompare != 0) return hourCompare;
+        return a.scheduledMinute.compareTo(b.scheduledMinute);
+      });
+      return meds;
+    });
   }
 
   Future<void> saveMedication({
@@ -305,6 +307,25 @@ class CareCrewRepository {
       title: 'Medication scheduled',
       details: '${medication.name} at ${medication.timeLabel} was added.',
       actor: 'System',
+    );
+  }
+
+  Future<void> updateMedication({
+    required String uid,
+    required MedicationEntry medication,
+  }) async {
+    await _subCollection(uid, 'medications').doc(medication.id).update({
+      ...medication.toMap(),
+      'id': medication.id,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    await addActivityLog(
+      uid: uid,
+      type: 'medication_updated',
+      title: 'Medication updated',
+      details: '${medication.name} at ${medication.timeLabel} was updated.',
+      actor: 'Caregiver',
+      meta: {'medicationId': medication.id},
     );
   }
 
@@ -429,6 +450,7 @@ class CareCrewRepository {
 
     final alertLabel = alertReasons.isEmpty ? null : alertReasons.first;
     final ref = _subCollection(uid, 'vitals').doc();
+    final timestamp = entry.createdAt ?? DateTime.now();
     final saved = VitalEntry(
       id: ref.id,
       temperature: entry.temperature,
@@ -440,8 +462,8 @@ class CareCrewRepository {
       photoPath: entry.photoPath,
       alertLabel: alertLabel,
       alertReasons: alertReasons,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
     );
     await ref.set(saved.toMap());
     await addActivityLog(
@@ -459,6 +481,64 @@ class CareCrewRepository {
       await NotificationService.instance.showAbnormalVitalsAlert(alertReasons);
     }
     return saved;
+  }
+
+  Future<VitalEntry> updateVitalEntry({
+    required String uid,
+    required VitalEntry entry,
+  }) async {
+    final thresholdsSnapshot = await _thresholdDoc(uid).get();
+    final thresholds = thresholdsSnapshot.exists && thresholdsSnapshot.data() != null
+        ? ThresholdConfig.fromMap(thresholdsSnapshot.id, thresholdsSnapshot.data()!)
+        : ThresholdConfig(id: 'default');
+
+    final alertReasons = <String>[];
+    if (thresholds.temperatureHigh != null && entry.temperature > thresholds.temperatureHigh!) {
+      alertReasons.add('Fever detected');
+    }
+    if (thresholds.systolicHigh != null && entry.systolic > thresholds.systolicHigh!) {
+      alertReasons.add('High blood pressure');
+    }
+    if (thresholds.diastolicHigh != null && entry.diastolic > thresholds.diastolicHigh!) {
+      alertReasons.add('Diastolic above threshold');
+    }
+    if (thresholds.painHigh != null && entry.painLevel > thresholds.painHigh!) {
+      alertReasons.add('Pain level elevated');
+    }
+
+    final alertLabel = alertReasons.isEmpty ? null : alertReasons.first;
+    final timestamp = entry.createdAt ?? DateTime.now();
+    final updated = VitalEntry(
+      id: entry.id,
+      temperature: entry.temperature,
+      systolic: entry.systolic,
+      diastolic: entry.diastolic,
+      painLevel: entry.painLevel,
+      notes: entry.notes,
+      photoUrl: entry.photoUrl,
+      photoPath: entry.photoPath,
+      alertLabel: alertLabel,
+      alertReasons: alertReasons,
+      createdAt: timestamp,
+      updatedAt: DateTime.now(),
+    );
+
+    await _subCollection(uid, 'vitals').doc(entry.id).update(updated.toMap());
+    await addActivityLog(
+      uid: uid,
+      type: 'vitals_updated',
+      title: 'Vitals updated',
+      details: 'Temperature ${entry.temperature.toStringAsFixed(1)}°F, BP ${entry.systolic}/${entry.diastolic}, pain ${entry.painLevel}.',
+      actor: 'Caregiver',
+      meta: {
+        'vitalId': entry.id,
+        'alertReasons': alertReasons,
+      },
+    );
+    if (alertReasons.isNotEmpty) {
+      await NotificationService.instance.showAbnormalVitalsAlert(alertReasons);
+    }
+    return updated;
   }
 
   Stream<List<AppointmentEntry>> watchAppointments(String uid) {
