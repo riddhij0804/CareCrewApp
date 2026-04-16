@@ -16,7 +16,9 @@ import 'package:url_launcher/url_launcher.dart';
 String _shortDate(DateTime value) => DateFormat('MMM d, yyyy').format(value);
 String _longDate(DateTime value) => DateFormat('EEE, MMM d, yyyy').format(value);
 String _shortTime(DateTime value) => DateFormat('h:mm a').format(value);
-String _dayKey(DateTime value) => DateFormat('yyyy-MM-dd').format(value);
+DateTime _startOfDay(DateTime value) => DateTime(value.year, value.month, value.day);
+String _dayKey(DateTime value) => DateFormat('yyyy-MM-dd').format(value.toLocal());
+String _trendDateLabel(DateTime value) => DateFormat('d MMM').format(value);
 String _relativeTime(DateTime value) {
   final diff = DateTime.now().difference(value);
   if (diff.inMinutes < 1) return 'just now';
@@ -1286,6 +1288,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final appointments = ref.watch(appointmentsProvider(widget.uid)).value ?? const <AppointmentEntry>[];
     final vitals = ref.watch(vitalsProvider(widget.uid)).value ?? const <VitalEntry>[];
     final repo = ref.read(repositoryProvider);
+    final today = _startOfDay(DateTime.now());
+    final trendDays = List.generate(7, (index) => today.subtract(Duration(days: 6 - index)));
 
     final thirtyDaysAgo = repo.thirtyDaysAgo();
     final sevenDaysAgo = repo.sevenDaysAgo();
@@ -1297,12 +1301,32 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final alerts = recentLogs.where((log) => log.type == 'critical_alert').toList();
     final medicationsPerDay = meds.length;
     final weeklyBars = List.generate(7, (index) {
-      final day = DateTime.now().subtract(Duration(days: 6 - index));
+      final day = trendDays[index];
       final key = _dayKey(day);
       final taken = logs.where((log) => log.type == 'medication_taken' && log.createdAt != null && _dayKey(log.createdAt!) == key).length;
       final totalScheduled = math.max(medicationsPerDay, 1);
       return (math.min(taken, totalScheduled) / totalScheduled) * 100;
     });
+    final vitalsByDay = <String, VitalEntry>{};
+    for (final entry in recentVitals) {
+      final createdAt = entry.createdAt;
+      if (createdAt == null) continue;
+      final key = _dayKey(createdAt);
+      final existing = vitalsByDay[key];
+      if (existing == null || (existing.createdAt != null && createdAt.isAfter(existing.createdAt!))) {
+        vitalsByDay[key] = entry;
+      }
+    }
+    final systolicSpots = <FlSpot>[];
+    final temperatureSpots = <FlSpot>[];
+    for (var index = 0; index < trendDays.length; index++) {
+      final key = _dayKey(trendDays[index]);
+      final entry = vitalsByDay[key];
+      final previousSystolic = systolicSpots.isNotEmpty ? systolicSpots.last.y : null;
+      final previousTemperature = temperatureSpots.isNotEmpty ? temperatureSpots.last.y : null;
+      systolicSpots.add(FlSpot(index.toDouble(), entry?.systolic.toDouble() ?? previousSystolic ?? 0));
+      temperatureSpots.add(FlSpot(index.toDouble(), entry?.temperature ?? previousTemperature ?? 0));
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -1391,11 +1415,11 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                               showTitles: true,
                               reservedSize: 26,
                               getTitlesWidget: (value, meta) {
-                                final day = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
                                 final index = value.toInt().clamp(0, 6);
+                                final day = trendDays[index];
                                 return Padding(
                                   padding: const EdgeInsets.only(top: 6),
-                                  child: Text(day[index], style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11)),
+                                  child: Text(_trendDateLabel(day), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11)),
                                 );
                               },
                             ),
@@ -1574,26 +1598,22 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                         ),
                         lineBarsData: [
                           LineChartBarData(
-                            spots: List.generate(math.min(recentVitals.length, 7), (index) {
-                              final entry = recentVitals.reversed.toList()[index];
-                              return FlSpot(index.toDouble(), entry.systolic.toDouble());
-                            }),
+                            spots: systolicSpots,
                             isCurved: true,
                             barWidth: 3,
                             color: const Color(0xFF103A86),
                             dotData: const FlDotData(show: true),
                           ),
                           LineChartBarData(
-                            spots: List.generate(math.min(recentVitals.length, 7), (index) {
-                              final entry = recentVitals.reversed.toList()[index];
-                              return FlSpot(index.toDouble(), entry.temperature);
-                            }),
+                            spots: temperatureSpots,
                             isCurved: true,
                             barWidth: 3,
                             color: const Color(0xFFF0C84B),
                             dotData: const FlDotData(show: true),
                           ),
                         ],
+                        minX: 0,
+                        maxX: 6,
                       ),
                     ),
                   ),
