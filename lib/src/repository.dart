@@ -781,7 +781,7 @@ class CareCrewRepository {
       title: 'Medication taken',
       details: '${medication.name} ${medication.dosage} marked as taken.',
       actor: actor ?? 'Caregiver',
-      meta: {'medicationId': medication.id},
+      meta: {'medicationId': medication.id, 'doseDateKey': doseKey},
     );
   }
 
@@ -805,7 +805,7 @@ class CareCrewRepository {
       title: 'Medication marked not taken',
       details: '${medication.name} ${medication.dosage} marked as not taken.',
       actor: actor ?? 'Caregiver',
-      meta: {'medicationId': medication.id},
+      meta: {'medicationId': medication.id, 'doseDateKey': _dayKey(medication.createdAt ?? DateTime.now())},
     );
   }
 
@@ -830,22 +830,28 @@ class CareCrewRepository {
       final alreadyLoggedMissed = medication.lastMissedDateKey == doseKey;
       final alreadyTakenForDose = medication.status == 'taken' || medication.lastTakenDateKey == doseKey;
 
-      if (isPastDue && !alreadyTakenForDose && !alreadyLoggedMissed) {
-        await doc.reference.update(
-          {
-            'status': 'missed',
-            'lastMissedDateKey': doseKey,
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-        );
-        await addActivityLog(
-          uid: uid,
-          type: 'medication_missed',
-          title: 'Medication missed',
-          details: '${medication.name} was due at ${medication.timeLabel} and has not been marked taken.',
-          actor: 'System',
-          meta: {'medicationId': medication.id},
-        );
+      if (isPastDue && !alreadyTakenForDose) {
+        final missedPayload = <String, dynamic>{
+          'status': 'missed',
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
+        if (!alreadyLoggedMissed) {
+          missedPayload['lastMissedDateKey'] = doseKey;
+        }
+        if (medication.status != 'missed' || !alreadyLoggedMissed) {
+          await doc.reference.update(missedPayload);
+        }
+
+        if (!alreadyLoggedMissed) {
+          await addActivityLog(
+            uid: uid,
+            type: 'medication_missed',
+            title: 'Medication missed',
+            details: '${medication.name} was due at ${medication.timeLabel} and has not been marked taken.',
+            actor: 'System',
+            meta: {'medicationId': medication.id, 'doseDateKey': doseKey},
+          );
+        }
       } else if (!isPastDue && medication.status == 'missed') {
         await doc.reference.update(
           {
@@ -1261,12 +1267,65 @@ class CareCrewRepository {
     }
   }
 
+  String _medicationEventKey(ActivityLogEntry log) {
+    final medicationId = (log.meta['medicationId'] as String?)?.trim();
+    final doseDateKey = (log.meta['doseDateKey'] as String?)?.trim();
+    final dateKey = doseDateKey != null && doseDateKey.isNotEmpty
+        ? doseDateKey
+        : _dayKey(log.createdAt ?? DateTime.now());
+    final baseKey = medicationId != null && medicationId.isNotEmpty ? medicationId : log.details.trim();
+    return '$baseKey|$dateKey';
+  }
+
+  Map<String, String> _dedupeMedicationEvents(List<ActivityLogEntry> logs) {
+    final events = <String, String>{};
+    for (final log in logs) {
+      if (log.type != 'medication_taken' && log.type != 'medication_missed') continue;
+      final key = _medicationEventKey(log);
+      final existing = events[key];
+      if (existing == 'taken') continue;
+      if (log.type == 'medication_taken') {
+        events[key] = 'taken';
+      } else {
+        events.putIfAbsent(key, () => 'missed');
+      }
+    }
+    return events;
+  }
+
   int medicationAdherencePercent(List<ActivityLogEntry> logs) {
-    final taken = logs.where((log) => log.type == 'medication_taken').length;
-    final missed = logs.where((log) => log.type == 'medication_missed').length;
+    final events = _dedupeMedicationEvents(logs);
+    final taken = events.values.where((value) => value == 'taken').length;
+    final missed = events.values.where((value) => value == 'missed').length;
     final total = taken + missed;
     if (total == 0) return 0;
     return ((taken / total) * 100).round();
+  }
+
+  int medicationMissedCount(List<ActivityLogEntry> logs) {
+    final events = _dedupeMedicationEvents(logs);
+    return events.values.where((value) => value == 'missed').length;
+  }
+
+  Map<String, int> medicationEventCountsByDay(List<ActivityLogEntry> logs, List<DateTime> days, {required String type}) {
+    final counts = {for (final day in days) _dayKey(day): 0};
+    final events = _dedupeMedicationEvents(logs);
+    final eventByKey = <String, ActivityLogEntry>{};
+    for (final log in logs) {
+      if (log.type != 'medication_taken' && log.type != 'medication_missed') continue;
+      eventByKey[_medicationEventKey(log)] = log;
+    }
+    for (final entry in eventByKey.entries) {
+      final log = entry.value;
+      final bucketType = events[entry.key];
+      if (bucketType != type) continue;
+      final doseDateKey = (log.meta['doseDateKey'] as String?)?.trim();
+      final dayKey = doseDateKey != null && doseDateKey.isNotEmpty ? doseDateKey : _dayKey(log.createdAt ?? DateTime.now());
+      if (counts.containsKey(dayKey)) {
+        counts[dayKey] = counts[dayKey]! + 1;
+      }
+    }
+    return counts;
   }
 
   int appointmentAttendancePercent(List<AppointmentEntry> appointments) {

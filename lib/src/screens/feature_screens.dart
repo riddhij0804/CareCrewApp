@@ -701,6 +701,7 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
   DateTime _medStartDate = _startOfDay(DateTime.now());
   bool _saving = false;
   bool _showAddMedicationForm = false;
+  bool _syncedStatuses = false;
 
   List<DateTime> get _calendarDays {
     // Show 30 days centered around today for scrolling
@@ -712,6 +713,18 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
   void initState() {
     super.initState();
     _medStartDateDisplayController.text = DateFormat('MMM d, yyyy').format(_medStartDate);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_syncedStatuses) return;
+    _syncedStatuses = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await ref.read(repositoryProvider).syncMedicationStatuses(widget.uid);
+      ref.invalidate(medicationsProvider(widget.uid));
+      ref.invalidate(activityLogsProvider(widget.uid));
+    });
   }
 
   @override
@@ -1942,6 +1955,68 @@ class HistoryScreen extends ConsumerStatefulWidget {
 class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   int _viewIndex = 0;
 
+  String _medicationEventKey(ActivityLogEntry log) {
+    final medicationId = (log.meta['medicationId'] as String?)?.trim();
+    final doseDateKey = (log.meta['doseDateKey'] as String?)?.trim();
+    final dayKey = doseDateKey != null && doseDateKey.isNotEmpty
+        ? doseDateKey
+        : _dayKey(log.createdAt ?? DateTime.now());
+    final baseKey = medicationId != null && medicationId.isNotEmpty ? medicationId : log.details.trim();
+    return '$baseKey|$dayKey';
+  }
+
+  Map<String, ActivityLogEntry> _uniqueMedicationEvents(List<ActivityLogEntry> logs) {
+    final events = <String, ActivityLogEntry>{};
+    for (final log in logs) {
+      if (log.type != 'medication_taken' && log.type != 'medication_missed') continue;
+      final key = _medicationEventKey(log);
+      final existing = events[key];
+      if (existing?.type == 'medication_taken') continue;
+      if (log.type == 'medication_taken') {
+        events[key] = log;
+      } else {
+        events.putIfAbsent(key, () => log);
+      }
+    }
+    return events;
+  }
+
+  Map<String, int> _dailyMedicationCounts(
+    Iterable<ActivityLogEntry> events,
+    List<DateTime> days, {
+    required String type,
+  }) {
+    final counts = {for (final day in days) _dayKey(day): 0};
+    for (final log in events) {
+      if (log.type != type) continue;
+      final doseDateKey = (log.meta['doseDateKey'] as String?)?.trim();
+      final dayKey = doseDateKey != null && doseDateKey.isNotEmpty ? doseDateKey : _dayKey(log.createdAt ?? DateTime.now());
+      if (counts.containsKey(dayKey)) {
+        counts[dayKey] = counts[dayKey]! + 1;
+      }
+    }
+    return counts;
+  }
+
+  String? _medicationNameForLog(ActivityLogEntry log, List<MedicationEntry> meds) {
+    final medicationId = (log.meta['medicationId'] as String?)?.trim();
+    if (medicationId != null && medicationId.isNotEmpty) {
+      for (final medication in meds) {
+        if (medication.id == medicationId) return medication.name;
+      }
+    }
+    final details = log.details.trim();
+    if (details.isEmpty) return null;
+    final separator = details.contains(' was due at ') ? ' was due at ' : ' ';
+    final index = details.indexOf(separator);
+    return index > 0 ? details.substring(0, index).trim() : details;
+  }
+
+  String _activityDateLabel(ActivityLogEntry entry) {
+    final createdAt = entry.createdAt ?? DateTime.now();
+    return '${_shortDate(createdAt)} • ${_shortTime(createdAt)}';
+  }
+
   Future<void> _clearHistory() async {
     final shouldClear = await showDialog<bool>(
       context: context,
@@ -1975,8 +2050,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   Widget build(BuildContext context) {
     final role = ref.watch(careRoleProvider(widget.uid)).asData?.value ?? CaregiverRole.admin;
     final canEdit = role.canEdit;
-    final authUser = ref.watch(authStateProvider).value;
-    final logs = ref.watch(activityLogsProvider(authUser?.uid ?? widget.uid)).value ?? const <ActivityLogEntry>[];
+    final logs = ref.watch(activityLogsProvider(widget.uid)).value ?? const <ActivityLogEntry>[];
     final meds = ref.watch(medicationsProvider(widget.uid)).value ?? const <MedicationEntry>[];
     final appointments = ref.watch(appointmentsProvider(widget.uid)).value ?? const <AppointmentEntry>[];
     final vitals = ref.watch(vitalsProvider(widget.uid)).value ?? const <VitalEntry>[];
@@ -1989,17 +2063,25 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final sevenDaysAgo = repo.sevenDaysAgo();
     final recentLogs = repo.logsForRange(logs, thirtyDaysAgo);
     final recentVitals = repo.vitalsForRange(vitals, sevenDaysAgo);
+    final uniqueMedicationEvents = _uniqueMedicationEvents(recentLogs);
     final adherence = repo.medicationAdherencePercent(recentLogs);
     final attendance = repo.appointmentAttendancePercent(appointments);
-    final missedCount = recentLogs.where((log) => log.type == 'medication_missed').length;
+    final missedCount = repo.medicationMissedCount(recentLogs);
     final alerts = recentLogs.where((log) => log.type == 'critical_alert').toList();
+    final medicationUpdates = uniqueMedicationEvents.values.toList()
+      ..sort((a, b) => (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)).compareTo(a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
     String? mostMissedMedicationName;
     var mostMissedMedicationCount = 0;
-    for (final medication in meds) {
-      final missedForMedication = recentLogs.where((log) => log.type == 'medication_missed' && log.details.contains(medication.name)).length;
-      if (missedForMedication > mostMissedMedicationCount) {
-        mostMissedMedicationCount = missedForMedication;
-        mostMissedMedicationName = medication.name;
+    final missedCountsByMedication = <String, int>{};
+    for (final entry in uniqueMedicationEvents.values) {
+      if (entry.type != 'medication_missed') continue;
+      final medicationName = _medicationNameForLog(entry, meds) ?? 'Medication';
+      missedCountsByMedication[medicationName] = (missedCountsByMedication[medicationName] ?? 0) + 1;
+    }
+    for (final entry in missedCountsByMedication.entries) {
+      if (entry.value > mostMissedMedicationCount) {
+        mostMissedMedicationCount = entry.value;
+        mostMissedMedicationName = entry.key;
       }
     }
     final latestRecentVital = recentVitals.isNotEmpty ? recentVitals.first : null;
@@ -2023,6 +2105,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       systolicSpots.add(FlSpot(index.toDouble(), entry?.systolic.toDouble() ?? previousSystolic ?? 0));
       temperatureSpots.add(FlSpot(index.toDouble(), entry?.temperature ?? previousTemperature ?? 0));
     }
+    final takenCountsByDay = _dailyMedicationCounts(uniqueMedicationEvents.values, trendDays, type: 'medication_taken');
+    final missedCountsByDay = _dailyMedicationCounts(uniqueMedicationEvents.values, trendDays, type: 'medication_missed');
 
     return Scaffold(
       appBar: AppBar(
@@ -2125,6 +2209,68 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const SectionHeader(title: 'Medication Updates'),
+                  const SizedBox(height: 10),
+                  if (medicationUpdates.isEmpty)
+                    const Text('No medication updates recorded yet.')
+                  else
+                    ...medicationUpdates.map(
+                      (entry) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: entry.type == 'medication_missed' ? const Color(0xFFFCE7E8) : const Color(0xFFE6F7E9),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: _statusColor(entry.type),
+                                child: Icon(
+                                  entry.type == 'medication_missed' ? Icons.close_rounded : Icons.check_rounded,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _medicationNameForLog(entry, meds) ?? entry.title,
+                                      style: const TextStyle(fontWeight: FontWeight.w800),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(entry.details),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _activityDateLabel(entry),
+                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6B7E9B)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              SoftChip(
+                                label: entry.type == 'medication_missed' ? 'Missed' : 'Taken',
+                                color: entry.type == 'medication_missed' ? const Color(0xFFF7D2D4) : const Color(0xFFDDF4E1),
+                                textColor: entry.type == 'medication_missed' ? const Color(0xFF8A1120) : const Color(0xFF1E7A3C),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            AppSectionCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   const SectionHeader(title: 'Appointment Attendance'),
                   const SizedBox(height: 14),
                   if (appointments.isEmpty)
@@ -2196,8 +2342,87 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   else
                     ...alerts.take(3).map((alert) => Padding(
                           padding: const EdgeInsets.only(bottom: 8),
-                          child: SoftChip(label: alert.title, color: const Color(0xFFF7D2D4), textColor: const Color(0xFF8A1120)),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF7D2D4),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(alert.title, style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF8A1120))),
+                                const SizedBox(height: 4),
+                                Text(alert.details, style: const TextStyle(color: Color(0xFF8A1120))),
+                                const SizedBox(height: 4),
+                                Text(_activityDateLabel(alert), style: const TextStyle(color: Color(0xFF8A1120), fontSize: 12)),
+                              ],
+                            ),
+                          ),
                         )),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            AppSectionCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SectionHeader(title: 'Medication Updates'),
+                  const SizedBox(height: 10),
+                  if (medicationUpdates.isEmpty)
+                    const Text('No medication updates recorded yet.')
+                  else
+                    ...medicationUpdates.map(
+                      (entry) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: entry.type == 'medication_missed' ? const Color(0xFFFCE7E8) : const Color(0xFFE6F7E9),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: _statusColor(entry.type),
+                                child: Icon(
+                                  entry.type == 'medication_missed' ? Icons.close_rounded : Icons.check_rounded,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _medicationNameForLog(entry, meds) ?? entry.title,
+                                      style: const TextStyle(fontWeight: FontWeight.w800),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(entry.details),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _activityDateLabel(entry),
+                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6B7E9B)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              SoftChip(
+                                label: entry.type == 'medication_missed' ? 'Missed' : 'Taken',
+                                color: entry.type == 'medication_missed' ? const Color(0xFFF7D2D4) : const Color(0xFFDDF4E1),
+                                textColor: entry.type == 'medication_missed' ? const Color(0xFF8A1120) : const Color(0xFF1E7A3C),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -2266,6 +2491,21 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                       ),
                     ),
                   ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            AppSectionCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SectionHeader(title: 'Medication Trend (7 Days)'),
+                  const SizedBox(height: 14),
+                  _MedicationTrendCard(
+                    days: trendDays,
+                    takenCountsByDay: takenCountsByDay,
+                    missedCountsByDay: missedCountsByDay,
+                  ),
                 ],
               ),
             ),
@@ -2426,6 +2666,117 @@ class _SparklinePainter extends CustomPainter {
   }
 }
 
+class _MedicationTrendCard extends StatelessWidget {
+  const _MedicationTrendCard({
+    required this.days,
+    required this.takenCountsByDay,
+    required this.missedCountsByDay,
+  });
+
+  final List<DateTime> days;
+  final Map<String, int> takenCountsByDay;
+  final Map<String, int> missedCountsByDay;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxCount = math.max(
+      1,
+      math.max(
+        takenCountsByDay.values.isEmpty ? 0 : takenCountsByDay.values.reduce(math.max),
+        missedCountsByDay.values.isEmpty ? 0 : missedCountsByDay.values.reduce(math.max),
+      ),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          height: 180,
+          child: BarChart(
+            BarChartData(
+              alignment: BarChartAlignment.spaceAround,
+              maxY: (maxCount + 1).toDouble(),
+              minY: 0,
+              barTouchData: BarTouchData(enabled: false),
+              gridData: FlGridData(show: false),
+              borderData: FlBorderData(show: false),
+              titlesData: const FlTitlesData(show: false),
+              barGroups: List.generate(days.length, (index) {
+                final dayKey = _dayKey(days[index]);
+                final taken = takenCountsByDay[dayKey]?.toDouble() ?? 0;
+                final missed = missedCountsByDay[dayKey]?.toDouble() ?? 0;
+                return BarChartGroupData(
+                  x: index,
+                  barsSpace: 4,
+                  barRods: [
+                    BarChartRodData(
+                      toY: taken,
+                      width: 8,
+                      color: const Color(0xFF28A745),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    BarChartRodData(
+                      toY: missed,
+                      width: 8,
+                      color: const Color(0xFFB01E24),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ],
+                );
+              }),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _TrendLegend(label: 'Taken', color: const Color(0xFF28A745)),
+            _TrendLegend(label: 'Missed', color: const Color(0xFFB01E24)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: days
+              .map(
+                (day) => Expanded(
+                  child: Text(
+                    DateFormat('E').format(day),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: const Color(0xFF6B7E9B),
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+      ],
+    );
+  }
+}
+
+class _TrendLegend extends StatelessWidget {
+  const _TrendLegend({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: 10, height: 10, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3))),
+        const SizedBox(width: 6),
+        Text(label, style: Theme.of(context).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700)),
+      ],
+    );
+  }
+}
+
 class CareCircleScreen extends ConsumerStatefulWidget {
   const CareCircleScreen({super.key, required this.uid});
 
@@ -2519,14 +2870,7 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
         break;
       }
     }
-    ActivityLogEntry? latestClinical;
-    for (final entry in logs) {
-      if (entry.type == 'medication_taken' || entry.type == 'vitals_logged') {
-        latestClinical = entry;
-        break;
-      }
-    }
-    final latestUpdate = latestCareNote ?? latestClinical;
+    final latestUpdate = latestCareNote;
 
     return Scaffold(
       backgroundColor: const Color(0xFFCFE6F7),
