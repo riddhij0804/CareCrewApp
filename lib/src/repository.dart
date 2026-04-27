@@ -26,6 +26,7 @@ class CareCrewRepository {
       required String uid,
       required MedicationEntry medication,
     }) async {
+      await _ensureWritesAllowed(uid);
       await _subCollection(uid, 'medications').doc(medication.id).delete();
       await addActivityLog(
         uid: uid,
@@ -102,6 +103,24 @@ class CareCrewRepository {
 
   DocumentReference<Map<String, dynamic>> _thresholdDoc(String uid) =>
       _subCollection(uid, 'thresholds').doc('default');
+
+  Future<void> _ensureWritesAllowed(String uid) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+    final role = await resolveCaregiverRoleForContext(careContextId: uid, user: user);
+    if (role == CaregiverRole.doctor) {
+      throw StateError('Doctor accounts are read-only except for Settings (thresholds).');
+    }
+  }
+
+  Future<void> _ensureCanEditThresholds(String uid) async {
+    final user = _auth.currentUser;
+    if (user == null) throw StateError('Authentication required.');
+    final role = await resolveCaregiverRoleForContext(careContextId: uid, user: user);
+    if (role != CaregiverRole.doctor) {
+      throw StateError('Only doctors may edit thresholds.');
+    }
+  }
 
   String _dayKey(DateTime value) => DateFormat('yyyy-MM-dd').format(value);
 
@@ -472,6 +491,15 @@ class CareCrewRepository {
     required User user,
   }) async {
     if (careContextId == user.uid) {
+      try {
+        final selfProfile = await _userDoc(user.uid).get();
+        final selfRole = selfProfile.data()?['careRole'] as String?;
+        if (selfRole != null && selfRole.trim().isNotEmpty) {
+          return CaregiverRoleX.fromValue(selfRole);
+        }
+      } catch (_) {
+        // Fallback to admin when profile cannot be read.
+      }
       return CaregiverRole.admin;
     }
 
@@ -490,6 +518,15 @@ class CareCrewRepository {
         .limit(1)
         .get();
     if (legacyRows.docs.isEmpty) {
+      try {
+        final selfProfile = await _userDoc(user.uid).get();
+        final selfRole = selfProfile.data()?['careRole'] as String?;
+        if (selfRole != null && selfRole.trim().isNotEmpty) {
+          return CaregiverRoleX.fromValue(selfRole);
+        }
+      } catch (_) {
+        // Fall through to viewer when profile role cannot be resolved.
+      }
       return CaregiverRole.viewer;
     }
     final roleValue = legacyRows.docs.first.data()['role'] as String?;
@@ -531,6 +568,7 @@ class CareCrewRepository {
     required String uid,
     required PatientProfile profile,
   }) async {
+    await _ensureWritesAllowed(uid);
     final patientId = uid;
     try {
       await _patientDoc(uid).set(
@@ -601,6 +639,7 @@ class CareCrewRepository {
     required String uid,
     required CaregiverEntry caregiver,
   }) async {
+    await _ensureWritesAllowed(uid);
     final ref = _subCollection(uid, 'caregivers').doc();
     final patientProfileSnapshot = await _patientDoc(uid).get();
     final patientName = (patientProfileSnapshot.data()?['fullName'] as String?)?.trim();
@@ -649,6 +688,7 @@ class CareCrewRepository {
   }
 
   Future<void> deleteCaregiver({required String uid, required String caregiverId}) async {
+    await _ensureWritesAllowed(uid);
     final caregiverRef = _subCollection(uid, 'caregivers').doc(caregiverId);
     final caregiverSnapshot = await caregiverRef.get();
     final caregiverData = caregiverSnapshot.data() ?? const <String, dynamic>{};
@@ -706,6 +746,7 @@ class CareCrewRepository {
     required String uid,
     required MedicationEntry medication,
   }) async {
+    await _ensureWritesAllowed(uid);
     final ref = _subCollection(uid, 'medications').doc();
     await ref.set({...medication.toMap(), 'id': ref.id});
     await addActivityLog(
@@ -721,6 +762,7 @@ class CareCrewRepository {
     required String uid,
     required MedicationEntry medication,
   }) async {
+    await _ensureWritesAllowed(uid);
     await _subCollection(uid, 'medications').doc(medication.id).update({
       ...medication.toMap(),
       'id': medication.id,
@@ -741,6 +783,7 @@ class CareCrewRepository {
     required MedicationEntry medication,
     String? actor,
   }) async {
+    await _ensureWritesAllowed(uid);
     final now = DateTime.now();
     final doseKey = _dayKey(medication.createdAt ?? now);
     final nextStock = medication.currentStock == null
@@ -761,7 +804,7 @@ class CareCrewRepository {
       title: 'Medication taken',
       details: '${medication.name} ${medication.dosage} marked as taken.',
       actor: actor ?? 'Caregiver',
-      meta: {'medicationId': medication.id},
+      meta: {'medicationId': medication.id, 'doseDateKey': doseKey},
     );
   }
 
@@ -770,6 +813,7 @@ class CareCrewRepository {
     required MedicationEntry medication,
     String? actor,
   }) async {
+    await _ensureWritesAllowed(uid);
     await _subCollection(uid, 'medications').doc(medication.id).update(
       {
         'status': 'pending',
@@ -784,7 +828,7 @@ class CareCrewRepository {
       title: 'Medication marked not taken',
       details: '${medication.name} ${medication.dosage} marked as not taken.',
       actor: actor ?? 'Caregiver',
-      meta: {'medicationId': medication.id},
+      meta: {'medicationId': medication.id, 'doseDateKey': _dayKey(medication.createdAt ?? DateTime.now())},
     );
   }
 
@@ -809,23 +853,28 @@ class CareCrewRepository {
       final alreadyLoggedMissed = medication.lastMissedDateKey == doseKey;
       final alreadyTakenForDose = medication.status == 'taken' || medication.lastTakenDateKey == doseKey;
 
-      if (isPastDue && !alreadyTakenForDose && !alreadyLoggedMissed) {
-        await doc.reference.update(
-          {
-            'status': 'missed',
-            'lastMissedDateKey': doseKey,
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-        );
-        await addActivityLog(
-          uid: uid,
-          type: 'medication_missed',
-          title: 'Medication missed',
-          details:
-              '${medication.name} was due at ${medication.timeLabel} and has not been marked taken.',
-          actor: 'System',
-          meta: {'medicationId': medication.id},
-        );
+      if (isPastDue && !alreadyTakenForDose) {
+        final missedPayload = <String, dynamic>{
+          'status': 'missed',
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
+        if (!alreadyLoggedMissed) {
+          missedPayload['lastMissedDateKey'] = doseKey;
+        }
+        if (medication.status != 'missed' || !alreadyLoggedMissed) {
+          await doc.reference.update(missedPayload);
+        }
+
+        if (!alreadyLoggedMissed) {
+          await addActivityLog(
+            uid: uid,
+            type: 'medication_missed',
+            title: 'Medication missed',
+            details: '${medication.name} was due at ${medication.timeLabel} and has not been marked taken.',
+            actor: 'System',
+            meta: {'medicationId': medication.id, 'doseDateKey': doseKey},
+          );
+        }
       } else if (!isPastDue && medication.status == 'missed') {
         await doc.reference.update(
           {
@@ -860,6 +909,7 @@ class CareCrewRepository {
     required String uid,
     required ThresholdConfig thresholds,
   }) async {
+    await _ensureCanEditThresholds(uid);
     await _thresholdDoc(uid).set(thresholds.toMap(), SetOptions(merge: true));
     await addActivityLog(
       uid: uid,
@@ -874,6 +924,7 @@ class CareCrewRepository {
     required String uid,
     required VitalEntry entry,
   }) async {
+    await _ensureWritesAllowed(uid);
     final thresholdsSnapshot = await _thresholdDoc(uid).get();
     final thresholds =
         thresholdsSnapshot.exists && thresholdsSnapshot.data() != null
@@ -937,6 +988,7 @@ class CareCrewRepository {
     required String uid,
     required VitalEntry entry,
   }) async {
+    await _ensureWritesAllowed(uid);
     final thresholdsSnapshot = await _thresholdDoc(uid).get();
     final thresholds =
         thresholdsSnapshot.exists && thresholdsSnapshot.data() != null
@@ -1011,6 +1063,7 @@ class CareCrewRepository {
     required String uid,
     required AppointmentEntry appointment,
   }) async {
+    await _ensureWritesAllowed(uid);
     final ref = _subCollection(uid, 'appointments').doc();
     try {
       await ref.set({...appointment.toMap(), 'id': ref.id});
@@ -1038,10 +1091,13 @@ class CareCrewRepository {
     required String appointmentId,
     required AppointmentStatus status,
   }) async {
-    await _subCollection(uid, 'appointments').doc(appointmentId).update({
-      'status': status.name,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    await _ensureWritesAllowed(uid);
+    await _subCollection(uid, 'appointments').doc(appointmentId).update(
+      {
+        'status': status.name,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+    );
     await addActivityLog(
       uid: uid,
       type: 'appointment_status_changed',
@@ -1116,6 +1172,7 @@ class CareCrewRepository {
     required String uid,
     required PlatformFile file,
   }) async {
+    await _ensureWritesAllowed(uid);
     final bytes = await _readBytes(file);
 
     final cleanName = file.name.replaceAll(' ', '_');
@@ -1183,10 +1240,8 @@ class CareCrewRepository {
     required String uid,
     required DocumentEntry document,
   }) async {
-    await _runStorageOperation(
-      () => _storage.remove([document.storagePath]),
-      action: 'Document delete',
-    );
+    await _ensureWritesAllowed(uid);
+    await _storage.remove([document.storagePath]);
     await _subCollection(uid, 'documents').doc(document.id).delete();
     await addActivityLog(
       uid: uid,
@@ -1213,10 +1268,31 @@ class CareCrewRepository {
       final userSnapshot = await _userDoc(user.uid).get();
       final patientIds = (userSnapshot.data()?['patientIds'] as List?)?.whereType<String>().toList() ?? const <String>[];
       if (patientIds.isNotEmpty) {
-        return patientIds.first;
+        final linkedPatientId = patientIds.firstWhere(
+          (id) => id != user.uid,
+          orElse: () => patientIds.first,
+        );
+        return linkedPatientId;
       }
     } catch (_) {
       // Fall through to legacy care-context resolution.
+    }
+
+    // Canonical membership lookup for invited caregivers: patients/{patientId}/caregivers/{uid}
+    try {
+      final membershipSnapshot = await _firestore
+          .collectionGroup('caregivers')
+          .where('uid', isEqualTo: user.uid)
+          .where('status', isEqualTo: 'accepted')
+          .get();
+      for (final row in membershipSnapshot.docs) {
+        final ownerRef = row.reference.parent.parent;
+        if (ownerRef != null && ownerRef.id != user.uid) {
+          return ownerRef.id;
+        }
+      }
+    } catch (_) {
+      // Continue with legacy contact-based resolution.
     }
 
     final email = user.email?.trim().toLowerCase();
@@ -1233,7 +1309,9 @@ class CareCrewRepository {
       for (final doc in snapshot.docs) {
         final ownerRef = doc.reference.parent.parent;
         if (ownerRef == null) continue;
-        ownerUid ??= ownerRef.id;
+        if (ownerUid == null || ownerUid == user.uid) {
+          ownerUid = ownerRef.id;
+        }
 
         final status = (doc.data()['inviteStatus'] as String? ?? 'pending')
             .toLowerCase();
@@ -1252,12 +1330,65 @@ class CareCrewRepository {
     }
   }
 
+  String _medicationEventKey(ActivityLogEntry log) {
+    final medicationId = (log.meta['medicationId'] as String?)?.trim();
+    final doseDateKey = (log.meta['doseDateKey'] as String?)?.trim();
+    final dateKey = doseDateKey != null && doseDateKey.isNotEmpty
+        ? doseDateKey
+        : _dayKey(log.createdAt ?? DateTime.now());
+    final baseKey = medicationId != null && medicationId.isNotEmpty ? medicationId : log.details.trim();
+    return '$baseKey|$dateKey';
+  }
+
+  Map<String, String> _dedupeMedicationEvents(List<ActivityLogEntry> logs) {
+    final events = <String, String>{};
+    for (final log in logs) {
+      if (log.type != 'medication_taken' && log.type != 'medication_missed') continue;
+      final key = _medicationEventKey(log);
+      final existing = events[key];
+      if (existing == 'taken') continue;
+      if (log.type == 'medication_taken') {
+        events[key] = 'taken';
+      } else {
+        events.putIfAbsent(key, () => 'missed');
+      }
+    }
+    return events;
+  }
+
   int medicationAdherencePercent(List<ActivityLogEntry> logs) {
-    final taken = logs.where((log) => log.type == 'medication_taken').length;
-    final missed = logs.where((log) => log.type == 'medication_missed').length;
+    final events = _dedupeMedicationEvents(logs);
+    final taken = events.values.where((value) => value == 'taken').length;
+    final missed = events.values.where((value) => value == 'missed').length;
     final total = taken + missed;
     if (total == 0) return 0;
     return ((taken / total) * 100).round();
+  }
+
+  int medicationMissedCount(List<ActivityLogEntry> logs) {
+    final events = _dedupeMedicationEvents(logs);
+    return events.values.where((value) => value == 'missed').length;
+  }
+
+  Map<String, int> medicationEventCountsByDay(List<ActivityLogEntry> logs, List<DateTime> days, {required String type}) {
+    final counts = {for (final day in days) _dayKey(day): 0};
+    final events = _dedupeMedicationEvents(logs);
+    final eventByKey = <String, ActivityLogEntry>{};
+    for (final log in logs) {
+      if (log.type != 'medication_taken' && log.type != 'medication_missed') continue;
+      eventByKey[_medicationEventKey(log)] = log;
+    }
+    for (final entry in eventByKey.entries) {
+      final log = entry.value;
+      final bucketType = events[entry.key];
+      if (bucketType != type) continue;
+      final doseDateKey = (log.meta['doseDateKey'] as String?)?.trim();
+      final dayKey = doseDateKey != null && doseDateKey.isNotEmpty ? doseDateKey : _dayKey(log.createdAt ?? DateTime.now());
+      if (counts.containsKey(dayKey)) {
+        counts[dayKey] = counts[dayKey]! + 1;
+      }
+    }
+    return counts;
   }
 
   int appointmentAttendancePercent(List<AppointmentEntry> appointments) {

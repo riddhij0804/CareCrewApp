@@ -234,7 +234,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         IconButton(
                           onPressed: () {
                             if (myUid != null) {
-                              Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(uid: myUid)));
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ProfileScreen(
+                                    uid: myUid,
+                                    careContextUid: widget.uid,
+                                  ),
+                                ),
+                              );
                             }
                           },
                           icon: const Icon(Icons.settings_rounded, color: Colors.white),
@@ -695,6 +703,7 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
   DateTime _medStartDate = _startOfDay(DateTime.now());
   bool _saving = false;
   bool _showAddMedicationForm = false;
+  bool _syncedStatuses = false;
 
   List<DateTime> get _calendarDays {
     // Show 30 days centered around today for scrolling
@@ -706,6 +715,18 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
   void initState() {
     super.initState();
     _medStartDateDisplayController.text = DateFormat('MMM d, yyyy').format(_medStartDate);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_syncedStatuses) return;
+    _syncedStatuses = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await ref.read(repositoryProvider).syncMedicationStatuses(widget.uid);
+      ref.invalidate(medicationsProvider(widget.uid));
+      ref.invalidate(activityLogsProvider(widget.uid));
+    });
   }
 
   @override
@@ -2149,6 +2170,68 @@ class HistoryScreen extends ConsumerStatefulWidget {
 
 class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   int _viewIndex = 0;
+
+  String _medicationEventKey(ActivityLogEntry log) {
+    final medicationId = (log.meta['medicationId'] as String?)?.trim();
+    final doseDateKey = (log.meta['doseDateKey'] as String?)?.trim();
+    final dayKey = doseDateKey != null && doseDateKey.isNotEmpty
+        ? doseDateKey
+        : _dayKey(log.createdAt ?? DateTime.now());
+    final baseKey = medicationId != null && medicationId.isNotEmpty ? medicationId : log.details.trim();
+    return '$baseKey|$dayKey';
+  }
+
+  Map<String, ActivityLogEntry> _uniqueMedicationEvents(List<ActivityLogEntry> logs) {
+    final events = <String, ActivityLogEntry>{};
+    for (final log in logs) {
+      if (log.type != 'medication_taken' && log.type != 'medication_missed') continue;
+      final key = _medicationEventKey(log);
+      final existing = events[key];
+      if (existing?.type == 'medication_taken') continue;
+      if (log.type == 'medication_taken') {
+        events[key] = log;
+      } else {
+        events.putIfAbsent(key, () => log);
+      }
+    }
+    return events;
+  }
+
+  Map<String, int> _dailyMedicationCounts(
+    Iterable<ActivityLogEntry> events,
+    List<DateTime> days, {
+    required String type,
+  }) {
+    final counts = {for (final day in days) _dayKey(day): 0};
+    for (final log in events) {
+      if (log.type != type) continue;
+      final doseDateKey = (log.meta['doseDateKey'] as String?)?.trim();
+      final dayKey = doseDateKey != null && doseDateKey.isNotEmpty ? doseDateKey : _dayKey(log.createdAt ?? DateTime.now());
+      if (counts.containsKey(dayKey)) {
+        counts[dayKey] = counts[dayKey]! + 1;
+      }
+    }
+    return counts;
+  }
+
+  String? _medicationNameForLog(ActivityLogEntry log, List<MedicationEntry> meds) {
+    final medicationId = (log.meta['medicationId'] as String?)?.trim();
+    if (medicationId != null && medicationId.isNotEmpty) {
+      for (final medication in meds) {
+        if (medication.id == medicationId) return medication.name;
+      }
+    }
+    final details = log.details.trim();
+    if (details.isEmpty) return null;
+    final separator = details.contains(' was due at ') ? ' was due at ' : ' ';
+    final index = details.indexOf(separator);
+    return index > 0 ? details.substring(0, index).trim() : details;
+  }
+
+  String _activityDateLabel(ActivityLogEntry entry) {
+    final createdAt = entry.createdAt ?? DateTime.now();
+    return '${_shortDate(createdAt)} • ${_shortTime(createdAt)}';
+  }
   bool _isExportingReport = false;
 
   Future<void> _exportDoctorReportPdf({
@@ -2350,8 +2433,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   Widget build(BuildContext context) {
     final role = ref.watch(careRoleProvider(widget.uid)).asData?.value ?? CaregiverRole.admin;
     final canEdit = role.canEdit;
-    final authUser = ref.watch(authStateProvider).value;
-    final logs = ref.watch(activityLogsProvider(authUser?.uid ?? widget.uid)).value ?? const <ActivityLogEntry>[];
+    final logs = ref.watch(activityLogsProvider(widget.uid)).value ?? const <ActivityLogEntry>[];
     final meds = ref.watch(medicationsProvider(widget.uid)).value ?? const <MedicationEntry>[];
     final appointments = ref.watch(appointmentsProvider(widget.uid)).value ?? const <AppointmentEntry>[];
     final vitals = ref.watch(vitalsProvider(widget.uid)).value ?? const <VitalEntry>[];
@@ -2367,44 +2449,15 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final sevenDaysAgo = repo.sevenDaysAgo();
     final recentLogs = repo.logsForRange(logs, thirtyDaysAgo);
     final recentVitals = repo.vitalsForRange(vitals, sevenDaysAgo);
+    final uniqueMedicationEvents = _uniqueMedicationEvents(recentLogs);
     final adherence = repo.medicationAdherencePercent(recentLogs);
     final attendance = repo.appointmentAttendancePercent(appointments);
-    final takenCount = recentLogs
-        .where((log) => log.type == 'medication_taken')
-        .length;
-    final missedCount = recentLogs
-        .where((log) => log.type == 'medication_missed')
-        .length;
-    final currentTakenCount = meds
-        .where((medication) => medication.status == 'taken')
-        .length;
-    final currentMissedCount = meds
-        .where((medication) => medication.status == 'missed')
-        .length;
-    final currentPendingCount = math.max(
-      meds.length - currentTakenCount - currentMissedCount,
-      0,
-    );
-    final completedAppointments = appointments
-        .where(
-          (appointment) =>
-              appointment.statusValue == AppointmentStatus.completed,
-        )
-        .length;
-    final vitalAlertCount = recentVitals.where((entry) => entry.hasAlert).length;
-    final alerts = recentLogs
-        .where((log) => log.type == 'critical_alert')
-        .toList();
+    final missedCount = recentLogs.where((log) => log.type == 'medication_missed').length;
+    final alerts = recentLogs.where((log) => log.type == 'critical_alert').toList();
     String? mostMissedMedicationName;
     var mostMissedMedicationCount = 0;
     for (final medication in meds) {
-      final missedForMedication = recentLogs
-          .where(
-            (log) =>
-                log.type == 'medication_missed' &&
-                log.details.contains(medication.name),
-          )
-          .length;
+      final missedForMedication = recentLogs.where((log) => log.type == 'medication_missed' && log.details.contains(medication.name)).length;
       if (missedForMedication > mostMissedMedicationCount) {
         mostMissedMedicationCount = missedForMedication;
         mostMissedMedicationName = medication.name;
@@ -2449,6 +2502,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         ),
       );
     }
+    final takenCountsByDay = _dailyMedicationCounts(uniqueMedicationEvents.values, trendDays, type: 'medication_taken');
+    final missedCountsByDay = _dailyMedicationCounts(uniqueMedicationEvents.values, trendDays, type: 'medication_missed');
 
     return Scaffold(
       appBar: AppBar(
@@ -2613,6 +2668,68 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const SectionHeader(title: 'Medication Updates'),
+                  const SizedBox(height: 10),
+                  if (medicationUpdates.isEmpty)
+                    const Text('No medication updates recorded yet.')
+                  else
+                    ...medicationUpdates.map(
+                      (entry) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: entry.type == 'medication_missed' ? const Color(0xFFFCE7E8) : const Color(0xFFE6F7E9),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: _statusColor(entry.type),
+                                child: Icon(
+                                  entry.type == 'medication_missed' ? Icons.close_rounded : Icons.check_rounded,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _medicationNameForLog(entry, meds) ?? entry.title,
+                                      style: const TextStyle(fontWeight: FontWeight.w800),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(entry.details),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _activityDateLabel(entry),
+                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6B7E9B)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              SoftChip(
+                                label: entry.type == 'medication_missed' ? 'Missed' : 'Taken',
+                                color: entry.type == 'medication_missed' ? const Color(0xFFF7D2D4) : const Color(0xFFDDF4E1),
+                                textColor: entry.type == 'medication_missed' ? const Color(0xFF8A1120) : const Color(0xFF1E7A3C),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            AppSectionCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   const SectionHeader(title: 'Appointment Attendance'),
                   const SizedBox(height: 14),
                   if (appointments.isEmpty)
@@ -2745,21 +2862,14 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   if (alerts.isEmpty)
                     const Text('No critical alerts in the last 30 days.')
                   else
-                    ...alerts
-                        .take(3)
-                        .map(
-                          (alert) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: SoftChip(
-                              label: alert.title,
-                              color: const Color(0xFFF7D2D4),
-                              textColor: const Color(0xFF8A1120),
-                            ),
-                          ),
-                        ),
+                    ...alerts.take(3).map((alert) => Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: SoftChip(label: alert.title, color: const Color(0xFFF7D2D4), textColor: const Color(0xFF8A1120)),
+                        )),
                 ],
               ),
             ),
+            const SizedBox(height: 16),
             AppSectionCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2809,289 +2919,87 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                         ),
                       ),
                     ),
+                  if (missedCount > 0) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF7DDE0),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$missedCount Missed Doses (Last 30 Days)',
+                            style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF8A1120)),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            mostMissedMedicationName == null || mostMissedMedicationCount == 0
+                                ? 'Most missed: None'
+                                : 'Most missed: $mostMissedMedicationName ($mostMissedMedicationCount time${mostMissedMedicationCount == 1 ? '' : 's'})',
+                            style: const TextStyle(color: Color(0xFF8A1120)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            AppSectionCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SectionHeader(title: '7-Day Trend'),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _TrendSummaryCard(
+                          label: 'Blood Pressure',
+                          value: latestRecentVital == null ? '0/0' : '${latestRecentVital.systolic}/${latestRecentVital.diastolic}',
+                          color: const Color(0xFFDDE3F7),
+                          points: systolicSpots.map((spot) => spot.y).toList(),
+                          valueStyleSize: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _TrendSummaryCard(
+                          label: 'Temperature',
+                          value: latestRecentVital == null ? '0.0°' : '${latestRecentVital.temperature.toStringAsFixed(1)}°F',
+                          color: const Color(0xFFFFF6D5),
+                          points: temperatureSpots.map((spot) => spot.y).toList(),
+                          valueStyleSize: 20,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            AppSectionCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SectionHeader(title: 'Latest Clinical Note'),
+                  const SizedBox(height: 10),
+                  Text(vitals.isEmpty || vitals.first.notes.isEmpty ? 'No recent clinical note.' : vitals.first.notes),
                 ],
               ),
             ),
             const SizedBox(height: 16),
             CareCrewPrimaryButton(
-              label: _isExportingReport ? 'Generating Report...' : 'Export Doctor Report (PDF)',
-              leading: _isExportingReport
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.upload_file_rounded),
-              onPressed: _isExportingReport
-                  ? null
-                  : () => _exportDoctorReportPdf(
-                      patientName: patient?.fullName.isNotEmpty == true
-                          ? patient!.fullName
-                          : 'Care Account Patient',
-                      adherence: adherence,
-                      missedCount: missedCount,
-                      mostMissedMedicationName: mostMissedMedicationName,
-                      mostMissedMedicationCount: mostMissedMedicationCount,
-                      appointments: appointments,
-                      attendance: attendance,
-                      alerts: alerts,
-                      medications: meds,
-                      latestRecentVital: latestRecentVital,
-                      latestClinicalNote:
-                          vitals.isEmpty || vitals.first.notes.isEmpty
-                              ? 'No recent clinical note.'
-                              : vitals.first.notes,
-                    ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _MedicationAdherenceDonut extends StatelessWidget {
-  const _MedicationAdherenceDonut({
-    required this.adherence,
-    required this.taken,
-    required this.missed,
-    required this.pending,
-  });
-
-  final int adherence;
-  final int taken;
-  final int missed;
-  final int pending;
-
-  @override
-  Widget build(BuildContext context) {
-    final total = taken + missed + pending;
-    final hasData = total > 0;
-
-    final sections = hasData
-        ? [
-            PieChartSectionData(
-              value: taken.toDouble(),
-              color: const Color(0xFF2BB673),
-              radius: 30,
-              title: '',
-            ),
-            PieChartSectionData(
-              value: missed.toDouble(),
-              color: const Color(0xFFCC3B4A),
-              radius: 30,
-              title: '',
-            ),
-            PieChartSectionData(
-              value: pending.toDouble(),
-              color: const Color(0xFFF0C84B),
-              radius: 30,
-              title: '',
-            ),
-          ]
-        : [
-            PieChartSectionData(
-              value: 1,
-              color: const Color(0xFFE2EAF5),
-              radius: 30,
-              title: '',
-            ),
-          ];
-
-    return Column(
-      children: [
-        SizedBox(
-          height: 210,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              PieChart(
-                PieChartData(
-                  startDegreeOffset: -90,
-                  sectionsSpace: 3,
-                  centerSpaceRadius: 62,
-                  sections: sections,
-                ),
-              ),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '$adherence%',
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: const Color(0xFF103A86),
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  Text(
-                    'Adherence',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF4A678A),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        Wrap(
-          spacing: 10,
-          runSpacing: 8,
-          alignment: WrapAlignment.center,
-          children: [
-            _LegendChip(
-              label: 'Taken',
-              value: taken,
-              color: const Color(0xFF2BB673),
-            ),
-            _LegendChip(
-              label: 'Missed',
-              value: missed,
-              color: const Color(0xFFCC3B4A),
-            ),
-            _LegendChip(
-              label: 'Pending',
-              value: pending,
-              color: const Color(0xFFF0C84B),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _DoctorSnapshotBarChart extends StatelessWidget {
-  const _DoctorSnapshotBarChart({
-    required this.medicationTaken,
-    required this.medicationMissed,
-    required this.appointmentsKept,
-    required this.vitalAlerts,
-  });
-
-  final int medicationTaken;
-  final int medicationMissed;
-  final int appointmentsKept;
-  final int vitalAlerts;
-
-  @override
-  Widget build(BuildContext context) {
-    final metrics = [
-      _MetricBarData('Taken', 'Tk', medicationTaken, const Color(0xFF2BB673)),
-      _MetricBarData('Missed', 'Ms', medicationMissed, const Color(0xFFCC3B4A)),
-      _MetricBarData(
-        'Appts Kept',
-        'Ap',
-        appointmentsKept,
-        const Color(0xFF3468C0),
-      ),
-      _MetricBarData(
-        'Vital Alerts',
-        'Al',
-        vitalAlerts,
-        const Color(0xFF8A1120),
-      ),
-    ];
-
-    final maxValue = metrics
-        .map((metric) => metric.value)
-        .fold<int>(0, math.max);
-    final maxY = math.max(maxValue + 1, 4).toDouble();
-    final interval = maxY <= 4 ? 1.0 : (maxY / 4).ceilToDouble();
-
-    return Column(
-      children: [
-        SizedBox(
-          height: 240,
-          child: BarChart(
-            BarChartData(
-              maxY: maxY,
-              alignment: BarChartAlignment.spaceAround,
-              gridData: FlGridData(
-                show: true,
-                drawVerticalLine: false,
-                horizontalInterval: interval,
-                getDrawingHorizontalLine: (value) =>
-                    FlLine(color: const Color(0xFFDCE4F2), strokeWidth: 1),
-              ),
-              borderData: FlBorderData(show: false),
-              barTouchData: BarTouchData(
-                enabled: true,
-                touchTooltipData: BarTouchTooltipData(
-                  fitInsideHorizontally: true,
-                  fitInsideVertically: true,
-                  getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                    final metric = metrics[group.x.toInt()];
-                    return BarTooltipItem(
-                      '${metric.label}\n${metric.value}',
-                      const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    );
-                  },
-                ),
-              ),
-              titlesData: FlTitlesData(
-                rightTitles: const AxisTitles(
-                  sideTitles: SideTitles(showTitles: false),
-                ),
-                topTitles: const AxisTitles(
-                  sideTitles: SideTitles(showTitles: false),
-                ),
-                leftTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 28,
-                    interval: interval,
-                    getTitlesWidget: (value, meta) {
-                      return Text(
-                        value.toInt().toString(),
-                        style: const TextStyle(
-                          color: Color(0xFF5A7094),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                bottomTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    getTitlesWidget: (value, meta) {
-                      final index = value.toInt();
-                      if (index < 0 || index >= metrics.length)
-                        return const SizedBox.shrink();
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          metrics[index].shortLabel,
-                          style: const TextStyle(
-                            color: Color(0xFF5A7094),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              barGroups: List.generate(metrics.length, (index) {
-                final metric = metrics[index];
-                return BarChartGroupData(
-                  x: index,
-                  barRods: [
-                    BarChartRodData(
-                      toY: metric.value.toDouble(),
-                      width: 20,
-                      color: metric.color,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ],
-                );
-              }),
+              label: 'Export Report',
+              leading: const Icon(Icons.upload_file_rounded),
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Export feature can be wired to PDF generation if needed.')));
+              },
             ),
           ),
         ),
@@ -3167,6 +3075,117 @@ class _MetricBarData {
   final String shortLabel;
   final int value;
   final Color color;
+}
+
+class _MedicationTrendCard extends StatelessWidget {
+  const _MedicationTrendCard({
+    required this.days,
+    required this.takenCountsByDay,
+    required this.missedCountsByDay,
+  });
+
+  final List<DateTime> days;
+  final Map<String, int> takenCountsByDay;
+  final Map<String, int> missedCountsByDay;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxCount = math.max(
+      1,
+      math.max(
+        takenCountsByDay.values.isEmpty ? 0 : takenCountsByDay.values.reduce(math.max),
+        missedCountsByDay.values.isEmpty ? 0 : missedCountsByDay.values.reduce(math.max),
+      ),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          height: 180,
+          child: BarChart(
+            BarChartData(
+              alignment: BarChartAlignment.spaceAround,
+              maxY: (maxCount + 1).toDouble(),
+              minY: 0,
+              barTouchData: BarTouchData(enabled: false),
+              gridData: FlGridData(show: false),
+              borderData: FlBorderData(show: false),
+              titlesData: const FlTitlesData(show: false),
+              barGroups: List.generate(days.length, (index) {
+                final dayKey = _dayKey(days[index]);
+                final taken = takenCountsByDay[dayKey]?.toDouble() ?? 0;
+                final missed = missedCountsByDay[dayKey]?.toDouble() ?? 0;
+                return BarChartGroupData(
+                  x: index,
+                  barsSpace: 4,
+                  barRods: [
+                    BarChartRodData(
+                      toY: taken,
+                      width: 8,
+                      color: const Color(0xFF28A745),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    BarChartRodData(
+                      toY: missed,
+                      width: 8,
+                      color: const Color(0xFFB01E24),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ],
+                );
+              }),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _TrendLegend(label: 'Taken', color: const Color(0xFF28A745)),
+            _TrendLegend(label: 'Missed', color: const Color(0xFFB01E24)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: days
+              .map(
+                (day) => Expanded(
+                  child: Text(
+                    DateFormat('E').format(day),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: const Color(0xFF6B7E9B),
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+      ],
+    );
+  }
+}
+
+class _TrendLegend extends StatelessWidget {
+  const _TrendLegend({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: 10, height: 10, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3))),
+        const SizedBox(width: 6),
+        Text(label, style: Theme.of(context).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700)),
+      ],
+    );
+  }
 }
 
 class CareCircleScreen extends ConsumerStatefulWidget {
@@ -3274,14 +3293,7 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
         break;
       }
     }
-    ActivityLogEntry? latestClinical;
-    for (final entry in logs) {
-      if (entry.type == 'medication_taken' || entry.type == 'vitals_logged') {
-        latestClinical = entry;
-        break;
-      }
-    }
-    final latestUpdate = latestCareNote ?? latestClinical;
+    final latestUpdate = latestCareNote;
 
     return Scaffold(
       backgroundColor: const Color(0xFFCFE6F7),
@@ -4604,9 +4616,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 const SectionHeader(title: 'Important Notes'),
                 const SizedBox(height: 8),
-                const Text(
-                  'All data stays inside users/{userId}/... and is isolated per authenticated user. Threshold values should only be set by a certified doctor.',
-                ),
+                const Text('All data stays inside users/{userId}/... and is isolated per authenticated user. Threshold values should only be set by a certified doctor.'),
               ],
             ),
           ),
@@ -4617,9 +4627,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 }
 
 class ProfileScreen extends ConsumerStatefulWidget {
-  const ProfileScreen({super.key, required this.uid});
+  const ProfileScreen({
+    super.key,
+    required this.uid,
+    required this.careContextUid,
+  });
 
   final String uid;
+  final String careContextUid;
 
   @override
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
@@ -4674,42 +4689,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               ),
             ),
           ),
-          _ProfileMenuItem(
-            icon: Icons.event_note_outlined,
-            title: 'Appointments',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => AppointmentsScreen(uid: widget.uid),
-              ),
-            ),
-          ),
-          _ProfileMenuItem(
-            icon: Icons.description_outlined,
-            title: 'Documents',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => DocumentsScreen(uid: widget.uid),
-              ),
-            ),
-          ),
-          _ProfileMenuItem(
-            icon: Icons.receipt_long_outlined,
-            title: 'Activity',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => ActivityScreen(uid: widget.uid),
-              ),
-            ),
-          ),
-          _ProfileMenuItem(
-            icon: Icons.tune_rounded,
-            title: 'Settings',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => SettingsScreen(uid: widget.uid),
-              ),
-            ),
-          ),
+          _ProfileMenuItem(icon: Icons.event_note_outlined, title: 'Appointments', onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AppointmentsScreen(uid: widget.uid)))),
+          _ProfileMenuItem(icon: Icons.description_outlined, title: 'Documents', onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DocumentsScreen(uid: widget.uid)))),
+          _ProfileMenuItem(icon: Icons.receipt_long_outlined, title: 'Activity', onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ActivityScreen(uid: widget.uid)))),
+          _ProfileMenuItem(icon: Icons.tune_rounded, title: 'Settings', onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SettingsScreen(uid: widget.uid)))),
           const SizedBox(height: 10),
           CareCrewPrimaryButton(
             label: 'Logout',
