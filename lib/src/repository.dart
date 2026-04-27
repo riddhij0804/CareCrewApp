@@ -26,6 +26,7 @@ class CareCrewRepository {
       required String uid,
       required MedicationEntry medication,
     }) async {
+      await _ensureWritesAllowed(uid);
       await _subCollection(uid, 'medications').doc(medication.id).delete();
       await addActivityLog(
         uid: uid,
@@ -82,6 +83,24 @@ class CareCrewRepository {
 
   DocumentReference<Map<String, dynamic>> _thresholdDoc(String uid) =>
       _subCollection(uid, 'thresholds').doc('default');
+
+  Future<void> _ensureWritesAllowed(String uid) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+    final role = await resolveCaregiverRoleForContext(careContextId: uid, user: user);
+    if (role == CaregiverRole.doctor) {
+      throw StateError('Doctor accounts are read-only except for Settings (thresholds).');
+    }
+  }
+
+  Future<void> _ensureCanEditThresholds(String uid) async {
+    final user = _auth.currentUser;
+    if (user == null) throw StateError('Authentication required.');
+    final role = await resolveCaregiverRoleForContext(careContextId: uid, user: user);
+    if (role != CaregiverRole.doctor) {
+      throw StateError('Only doctors may edit thresholds.');
+    }
+  }
 
   String _dayKey(DateTime value) => DateFormat('yyyy-MM-dd').format(value);
 
@@ -452,6 +471,15 @@ class CareCrewRepository {
     required User user,
   }) async {
     if (careContextId == user.uid) {
+      try {
+        final selfProfile = await _userDoc(user.uid).get();
+        final selfRole = selfProfile.data()?['careRole'] as String?;
+        if (selfRole != null && selfRole.trim().isNotEmpty) {
+          return CaregiverRoleX.fromValue(selfRole);
+        }
+      } catch (_) {
+        // Fallback to admin when profile cannot be read.
+      }
       return CaregiverRole.admin;
     }
 
@@ -470,6 +498,15 @@ class CareCrewRepository {
         .limit(1)
         .get();
     if (legacyRows.docs.isEmpty) {
+      try {
+        final selfProfile = await _userDoc(user.uid).get();
+        final selfRole = selfProfile.data()?['careRole'] as String?;
+        if (selfRole != null && selfRole.trim().isNotEmpty) {
+          return CaregiverRoleX.fromValue(selfRole);
+        }
+      } catch (_) {
+        // Fall through to viewer when profile role cannot be resolved.
+      }
       return CaregiverRole.viewer;
     }
     final roleValue = legacyRows.docs.first.data()['role'] as String?;
@@ -514,6 +551,7 @@ class CareCrewRepository {
     required String uid,
     required PatientProfile profile,
   }) async {
+    await _ensureWritesAllowed(uid);
     final patientId = uid;
     try {
       await _patientDoc(uid).set(
@@ -577,6 +615,7 @@ class CareCrewRepository {
     required String uid,
     required CaregiverEntry caregiver,
   }) async {
+    await _ensureWritesAllowed(uid);
     final ref = _subCollection(uid, 'caregivers').doc();
     final patientProfileSnapshot = await _patientDoc(uid).get();
     final patientName = (patientProfileSnapshot.data()?['fullName'] as String?)?.trim();
@@ -625,6 +664,7 @@ class CareCrewRepository {
   }
 
   Future<void> deleteCaregiver({required String uid, required String caregiverId}) async {
+    await _ensureWritesAllowed(uid);
     final caregiverRef = _subCollection(uid, 'caregivers').doc(caregiverId);
     final caregiverSnapshot = await caregiverRef.get();
     final caregiverData = caregiverSnapshot.data() ?? const <String, dynamic>{};
@@ -680,6 +720,7 @@ class CareCrewRepository {
     required String uid,
     required MedicationEntry medication,
   }) async {
+    await _ensureWritesAllowed(uid);
     final ref = _subCollection(uid, 'medications').doc();
     await ref.set({
       ...medication.toMap(),
@@ -698,6 +739,7 @@ class CareCrewRepository {
     required String uid,
     required MedicationEntry medication,
   }) async {
+    await _ensureWritesAllowed(uid);
     await _subCollection(uid, 'medications').doc(medication.id).update({
       ...medication.toMap(),
       'id': medication.id,
@@ -718,6 +760,7 @@ class CareCrewRepository {
     required MedicationEntry medication,
     String? actor,
   }) async {
+    await _ensureWritesAllowed(uid);
     final now = DateTime.now();
     final doseKey = _dayKey(medication.createdAt ?? now);
     final nextStock = medication.currentStock == null
@@ -747,6 +790,7 @@ class CareCrewRepository {
     required MedicationEntry medication,
     String? actor,
   }) async {
+    await _ensureWritesAllowed(uid);
     await _subCollection(uid, 'medications').doc(medication.id).update(
       {
         'status': 'pending',
@@ -831,6 +875,7 @@ class CareCrewRepository {
     required String uid,
     required ThresholdConfig thresholds,
   }) async {
+    await _ensureCanEditThresholds(uid);
     await _thresholdDoc(uid).set(thresholds.toMap(), SetOptions(merge: true));
     await addActivityLog(
       uid: uid,
@@ -845,6 +890,7 @@ class CareCrewRepository {
     required String uid,
     required VitalEntry entry,
   }) async {
+    await _ensureWritesAllowed(uid);
     final thresholdsSnapshot = await _thresholdDoc(uid).get();
     final thresholds = thresholdsSnapshot.exists && thresholdsSnapshot.data() != null
         ? ThresholdConfig.fromMap(thresholdsSnapshot.id, thresholdsSnapshot.data()!)
@@ -903,6 +949,7 @@ class CareCrewRepository {
     required String uid,
     required VitalEntry entry,
   }) async {
+    await _ensureWritesAllowed(uid);
     final thresholdsSnapshot = await _thresholdDoc(uid).get();
     final thresholds = thresholdsSnapshot.exists && thresholdsSnapshot.data() != null
         ? ThresholdConfig.fromMap(thresholdsSnapshot.id, thresholdsSnapshot.data()!)
@@ -967,6 +1014,7 @@ class CareCrewRepository {
     required String uid,
     required AppointmentEntry appointment,
   }) async {
+    await _ensureWritesAllowed(uid);
     final ref = _subCollection(uid, 'appointments').doc();
     try {
       await ref.set({
@@ -994,6 +1042,7 @@ class CareCrewRepository {
     required String appointmentId,
     required AppointmentStatus status,
   }) async {
+    await _ensureWritesAllowed(uid);
     await _subCollection(uid, 'appointments').doc(appointmentId).update(
       {
         'status': status.name,
@@ -1064,6 +1113,7 @@ class CareCrewRepository {
     required String uid,
     required PlatformFile file,
   }) async {
+    await _ensureWritesAllowed(uid);
     final bytes = await _readBytes(file);
 
     final cleanName = file.name.replaceAll(' ', '_');
@@ -1122,6 +1172,7 @@ class CareCrewRepository {
     required String uid,
     required DocumentEntry document,
   }) async {
+    await _ensureWritesAllowed(uid);
     await _storage.remove([document.storagePath]);
     await _subCollection(uid, 'documents').doc(document.id).delete();
     await addActivityLog(
@@ -1149,10 +1200,31 @@ class CareCrewRepository {
       final userSnapshot = await _userDoc(user.uid).get();
       final patientIds = (userSnapshot.data()?['patientIds'] as List?)?.whereType<String>().toList() ?? const <String>[];
       if (patientIds.isNotEmpty) {
-        return patientIds.first;
+        final linkedPatientId = patientIds.firstWhere(
+          (id) => id != user.uid,
+          orElse: () => patientIds.first,
+        );
+        return linkedPatientId;
       }
     } catch (_) {
       // Fall through to legacy care-context resolution.
+    }
+
+    // Canonical membership lookup for invited caregivers: patients/{patientId}/caregivers/{uid}
+    try {
+      final membershipSnapshot = await _firestore
+          .collectionGroup('caregivers')
+          .where('uid', isEqualTo: user.uid)
+          .where('status', isEqualTo: 'accepted')
+          .get();
+      for (final row in membershipSnapshot.docs) {
+        final ownerRef = row.reference.parent.parent;
+        if (ownerRef != null && ownerRef.id != user.uid) {
+          return ownerRef.id;
+        }
+      }
+    } catch (_) {
+      // Continue with legacy contact-based resolution.
     }
 
     final email = user.email?.trim().toLowerCase();
@@ -1166,7 +1238,9 @@ class CareCrewRepository {
       for (final doc in snapshot.docs) {
         final ownerRef = doc.reference.parent.parent;
         if (ownerRef == null) continue;
-        ownerUid ??= ownerRef.id;
+        if (ownerUid == null || ownerUid == user.uid) {
+          ownerUid = ownerRef.id;
+        }
 
         final status = (doc.data()['inviteStatus'] as String? ?? 'pending').toLowerCase();
         if (status != 'accepted') {

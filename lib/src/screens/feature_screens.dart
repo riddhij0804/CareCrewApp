@@ -232,7 +232,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         IconButton(
                           onPressed: () {
                             if (myUid != null) {
-                              Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(uid: myUid)));
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ProfileScreen(
+                                    uid: myUid,
+                                    careContextUid: widget.uid,
+                                  ),
+                                ),
+                              );
                             }
                           },
                           icon: const Icon(Icons.settings_rounded, color: Colors.white),
@@ -3523,7 +3531,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 const SectionHeader(title: 'Important Notes'),
                 const SizedBox(height: 8),
-                const Text('All data stays inside users/{userId}/... and is isolated per authenticated user. Threshold values should only be set by a certified doctor.'),
+                const Text('Threshold values must be added only by a certified doctor.'),
               ],
             ),
           ),
@@ -3534,9 +3542,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 }
 
 class ProfileScreen extends ConsumerStatefulWidget {
-  const ProfileScreen({super.key, required this.uid});
+  const ProfileScreen({
+    super.key,
+    required this.uid,
+    required this.careContextUid,
+  });
 
   final String uid;
+  final String careContextUid;
 
   @override
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
@@ -3580,7 +3593,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           _ProfileMenuItem(icon: Icons.event_note_outlined, title: 'Appointments', onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AppointmentsScreen(uid: widget.uid)))),
           _ProfileMenuItem(icon: Icons.description_outlined, title: 'Documents', onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DocumentsScreen(uid: widget.uid)))),
           _ProfileMenuItem(icon: Icons.receipt_long_outlined, title: 'Activity', onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ActivityScreen(uid: widget.uid)))),
-          _ProfileMenuItem(icon: Icons.tune_rounded, title: 'Settings', onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SettingsScreen(uid: widget.uid)))),
+          _ProfileMenuItem(
+            icon: Icons.tune_rounded,
+            title: 'Settings',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => SettingsScreen(uid: widget.careContextUid),
+              ),
+            ),
+          ),
           const SizedBox(height: 10),
           CareCrewPrimaryButton(
             label: 'Logout',
