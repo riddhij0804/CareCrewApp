@@ -18,6 +18,33 @@ final authStateProvider = StreamProvider<User?>((ref) {
   return ref.watch(repositoryProvider).authStateChanges();
 });
 
+final pendingInvitesProvider = StreamProvider.family<List<CareInvite>, String>((ref, uid) {
+  final user = ref.watch(authStateProvider).value;
+  if (user == null || user.uid != uid) {
+    return Stream.value(const <CareInvite>[]);
+  }
+  return ref.watch(repositoryProvider).watchPendingInvites(user);
+});
+
+final userPatientIdsProvider = StreamProvider.family<List<String>, String>((ref, uid) {
+  return ref.watch(repositoryProvider).watchUserPatientIds(uid);
+});
+
+final careRoleProvider = FutureProvider.family<CaregiverRole, String>((ref, careContextId) async {
+  final user = ref.watch(authStateProvider).value;
+  if (user == null) return CaregiverRole.viewer;
+  return ref.watch(repositoryProvider).resolveCaregiverRoleForContext(
+        careContextId: careContextId,
+        user: user,
+      );
+});
+
+final activeCareContextUidProvider = FutureProvider.family<String, String>((ref, authUid) async {
+  final user = ref.watch(authStateProvider).value;
+  if (user == null || user.uid != authUid) return authUid;
+  return ref.watch(repositoryProvider).resolveCareContextUid(user);
+});
+
 final currentUserProfileProvider = StreamProvider.family<AppUserProfile?, String>((ref, uid) {
   return ref.watch(repositoryProvider).watchUserProfile(uid);
 });

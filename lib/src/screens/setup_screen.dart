@@ -1,3 +1,4 @@
+import 'package:carecrew_app/src/input_validators.dart';
 import 'package:carecrew_app/src/models.dart';
 import 'package:carecrew_app/src/providers.dart';
 import 'package:carecrew_app/src/screens/shell_screen.dart';
@@ -41,6 +42,14 @@ class _SetupFlowScreenState extends ConsumerState<SetupFlowScreen> {
   }
 
   String get _todayLabel => 'Step 1 of 2';
+
+  String? _emailOrPhoneValidator(String? value) {
+    final raw = value?.trim() ?? '';
+    if (raw.isEmpty) return 'Contact info is required';
+    if (InputValidators.email(raw, required: false) == null) return null;
+    if (InputValidators.phone(raw, required: false, fieldLabel: 'mobile number') == null) return null;
+    return 'Enter a valid email or 10-digit mobile number';
+  }
 
   Future<String?> _uid() async {
     final auth = ref.read(authStateProvider).value;
@@ -167,7 +176,7 @@ class _SetupFlowScreenState extends ConsumerState<SetupFlowScreen> {
                         controller: _fullNameController,
                         label: 'Patient Full Name',
                         hintText: 'e.g. Ram Mishra',
-                        validator: (value) => value == null || value.trim().isEmpty ? 'Patient name is required' : null,
+                        validator: (value) => InputValidators.requiredText(value, fieldName: 'Patient name'),
                       ),
                       const SizedBox(height: 14),
                       Row(
@@ -220,7 +229,7 @@ class _SetupFlowScreenState extends ConsumerState<SetupFlowScreen> {
                         label: 'Primary Condition / Diagnosis',
                         hintText: 'e.g. Post-op recovery',
                         maxLines: 3,
-                        validator: (value) => value == null || value.trim().isEmpty ? 'Condition is required' : null,
+                        validator: (value) => InputValidators.requiredText(value, fieldName: 'Condition'),
                       ),
                       const SizedBox(height: 16),
                       CareCrewPrimaryButton(
@@ -262,14 +271,14 @@ class _SetupFlowScreenState extends ConsumerState<SetupFlowScreen> {
                             controller: _caregiverNameController,
                             label: 'Caregiver Name',
                             hintText: 'Enter name',
-                            validator: (value) => value == null || value.trim().isEmpty ? 'Caregiver name is required' : null,
+                            validator: (value) => InputValidators.requiredText(value, fieldName: 'Caregiver name'),
                           ),
                           const SizedBox(height: 14),
                           CareCrewTextField(
                             controller: _caregiverContactController,
                             label: 'Email or Mobile Number',
                             hintText: 'contact info',
-                            validator: (value) => value == null || value.trim().isEmpty ? 'Contact info is required' : null,
+                            validator: _emailOrPhoneValidator,
                           ),
                           const SizedBox(height: 14),
                           CareCrewTextField(
