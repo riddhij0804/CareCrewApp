@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -4308,7 +4309,7 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
                           onTap: _pickDate,
                           suffixIcon: IconButton(
                             onPressed: _pickDate,
-                            icon: const material.Icon(Icons.calendar_month_rounded),
+                            icon: const Icon(Icons.calendar_month_rounded),
                           ),
                         ),
                       ),
