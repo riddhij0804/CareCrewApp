@@ -11,6 +11,31 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 class CareCrewRepository {
+      Future<void> setLastPatientLocation({required String uid, required String location}) async {
+        await _userDoc(uid).collection('meta').doc('last_patient_location').set({
+          'location': location,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      Future<String?> getLastPatientLocation(String uid) async {
+        final doc = await _userDoc(uid).collection('meta').doc('last_patient_location').get();
+        return doc.data()?['location'] as String?;
+      }
+    Future<void> deleteMedication({
+      required String uid,
+      required MedicationEntry medication,
+    }) async {
+      await _subCollection(uid, 'medications').doc(medication.id).delete();
+      await addActivityLog(
+        uid: uid,
+        type: 'medication_deleted',
+        title: 'Medication deleted',
+        details: '${medication.name} at ${medication.timeLabel} was deleted.',
+        actor: 'Caregiver',
+        meta: {'medicationId': medication.id},
+      );
+    }
   CareCrewRepository({
     FirebaseAuth? auth,
     FirebaseFirestore? firestore,
@@ -33,6 +58,21 @@ class CareCrewRepository {
 
   DocumentReference<Map<String, dynamic>> _userDoc(String uid) =>
       _firestore.collection('users').doc(uid);
+
+    DocumentReference<Map<String, dynamic>> _patientRootDoc(String patientId) =>
+      _firestore.collection('patients').doc(patientId);
+
+    CollectionReference<Map<String, dynamic>> _patientSubCollection(String patientId, String name) =>
+      _patientRootDoc(patientId).collection(name);
+
+    DocumentReference<Map<String, dynamic>> _patientProfileDoc(String patientId) =>
+      _patientSubCollection(patientId, 'profile').doc('main');
+
+    DocumentReference<Map<String, dynamic>> _patientCaregiverDoc(String patientId, String uid) =>
+      _patientSubCollection(patientId, 'caregivers').doc(uid);
+
+    CollectionReference<Map<String, dynamic>> _invitesCollection() =>
+      _firestore.collection('invites');
 
   CollectionReference<Map<String, dynamic>> _subCollection(String uid, String name) =>
       _userDoc(uid).collection(name);
@@ -76,8 +116,6 @@ class CareCrewRepository {
     throw StateError('Could not read the selected file. Please pick it again.');
   }
 
-  int _minutesOfDay(DateTime value) => value.hour * 60 + value.minute;
-
   Future<void> ensureUserProfile(User firebaseUser) async {
     final displayName = firebaseUser.displayName ?? '';
     final mobile = firebaseUser.phoneNumber ?? '';
@@ -90,6 +128,7 @@ class CareCrewRepository {
           'email': email,
           'mobileNumber': mobile,
           'careRole': 'admin',
+          'patientIds': FieldValue.arrayUnion([firebaseUser.uid]),
           'lastSeenAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
           'createdAt': FieldValue.serverTimestamp(),
@@ -123,6 +162,7 @@ class CareCrewRepository {
             'email': email,
             'mobileNumber': mobileNumber,
             'careRole': 'admin',
+            'patientIds': FieldValue.arrayUnion([user.uid]),
             'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           },
@@ -176,6 +216,266 @@ class CareCrewRepository {
 
   Future<void> sendPasswordReset(String email) => _auth.sendPasswordResetEmail(email: email);
 
+  String _normalizePhone(String? value) {
+    final digits = (value ?? '').replaceAll(RegExp(r'\D'), '');
+    if (digits.length > 10) {
+      return digits.substring(digits.length - 10);
+    }
+    return digits;
+  }
+
+  Future<String> _resolveUserInvitePhone(User user) async {
+    final authPhone = _normalizePhone(user.phoneNumber);
+    if (authPhone.isNotEmpty) return authPhone;
+
+    try {
+      final profile = await _userDoc(user.uid).get();
+      final profilePhone = _normalizePhone(profile.data()?['mobileNumber'] as String?);
+      return profilePhone;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  bool _inviteMatchesUser(CareInvite invite, String userId, String userPhone) {
+    final inviteUserId = invite.invitedUserId?.trim();
+    if (inviteUserId != null && inviteUserId.isNotEmpty) {
+      return inviteUserId == userId;
+    }
+
+    final invitePhone = _normalizePhone(invite.invitedPhone);
+    if (invitePhone.isEmpty) {
+      return true;
+    }
+    if (userPhone.isEmpty) {
+      return false;
+    }
+    return invitePhone == userPhone;
+  }
+
+  Stream<List<String>> watchUserPatientIds(String uid) {
+    return _userDoc(uid).snapshots().map((snapshot) {
+      final raw = (snapshot.data()?['patientIds'] as List?) ?? const [];
+      final ids = raw.whereType<String>().map((id) => id.trim()).where((id) => id.isNotEmpty).toList();
+      final deduped = <String>{};
+      final ordered = <String>[];
+      for (final id in ids) {
+        if (deduped.add(id)) {
+          ordered.add(id);
+        }
+      }
+      return ordered;
+    });
+  }
+
+  Future<void> _bindEmailInvitesToUser(User user) async {
+    final email = user.email?.trim().toLowerCase();
+    if (email == null || email.isEmpty) return;
+
+    // Backfill invite records for legacy caregiver rows created before invites/{inviteId} existed.
+    try {
+      final legacyPending = await _firestore
+          .collectionGroup('caregivers')
+          .where('contact', isEqualTo: email)
+          .where('inviteStatus', isEqualTo: 'pending')
+          .get();
+      for (final row in legacyPending.docs) {
+        final ownerRef = row.reference.parent.parent;
+        if (ownerRef == null) continue;
+        final patientId = ownerRef.id;
+        final legacy = row.data();
+
+        final existingInvite = await _invitesCollection()
+            .where('patientId', isEqualTo: patientId)
+            .where('invitedEmail', isEqualTo: email)
+            .limit(1)
+            .get();
+        final hasPending = existingInvite.docs.any((doc) {
+          final status = (doc.data()['status'] as String? ?? '').toLowerCase();
+          return status == 'pending';
+        });
+        if (hasPending) continue;
+
+        final ownerProfile = await _userDoc(patientId).get();
+        final ownerName = (ownerProfile.data()?['displayName'] as String?)?.trim();
+        final patientProfile = await _patientDoc(patientId).get();
+        final patientName = (patientProfile.data()?['fullName'] as String?)?.trim();
+
+        await _invitesCollection().doc().set(
+          CareInvite(
+            id: '',
+            patientId: patientId,
+            role: CaregiverRoleX.fromValue(legacy['role'] as String?).name,
+            status: 'pending',
+            invitedBy: patientId,
+            invitedUserId: user.uid,
+            invitedEmail: email,
+            invitedPhone: (legacy['mobile'] as String?)?.trim(),
+            invitedByName: ownerName?.isEmpty == true ? null : ownerName,
+            patientName: patientName?.isEmpty == true ? null : patientName,
+            createdAt: DateTime.now(),
+          ).toMap(),
+        );
+      }
+    } catch (_) {
+      // Legacy invite backfill is best-effort and should not block login routing.
+    }
+
+    final snapshot = await _invitesCollection()
+        .where('status', isEqualTo: 'pending')
+        .where('invitedEmail', isEqualTo: email)
+        .get();
+    if (snapshot.docs.isEmpty) return;
+
+    final batch = _firestore.batch();
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final boundUid = (data['invitedUserId'] as String?)?.trim();
+      if (boundUid == null || boundUid.isEmpty) {
+        batch.set(doc.reference, {
+          'invitedUserId': user.uid,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+    }
+    await batch.commit();
+  }
+
+  Stream<List<CareInvite>> watchPendingInvites(User user) async* {
+    await _bindEmailInvitesToUser(user);
+    final userPhone = await _resolveUserInvitePhone(user);
+    yield* _invitesCollection()
+        .where('status', isEqualTo: 'pending')
+        .where('invitedUserId', isEqualTo: user.uid)
+        .snapshots()
+        .map((snapshot) {
+          final invites = snapshot.docs
+              .map((doc) => CareInvite.fromMap(doc.id, doc.data()))
+              .where((invite) => _inviteMatchesUser(invite, user.uid, userPhone))
+              .toList();
+          invites.sort((a, b) => (b.createdAt ?? DateTime(1970)).compareTo(a.createdAt ?? DateTime(1970)));
+          return invites;
+        });
+  }
+
+  Future<List<CareInvite>> fetchPendingInvites(User user) async {
+    await _bindEmailInvitesToUser(user);
+    final userPhone = await _resolveUserInvitePhone(user);
+    final snapshot = await _invitesCollection()
+        .where('status', isEqualTo: 'pending')
+        .where('invitedUserId', isEqualTo: user.uid)
+        .get();
+    final invites = snapshot.docs
+        .map((doc) => CareInvite.fromMap(doc.id, doc.data()))
+        .where((invite) => _inviteMatchesUser(invite, user.uid, userPhone))
+        .toList();
+    invites.sort((a, b) => (b.createdAt ?? DateTime(1970)).compareTo(a.createdAt ?? DateTime(1970)));
+    return invites;
+  }
+
+  Future<void> acceptInvite({
+    required User user,
+    required CareInvite invite,
+  }) async {
+    if (invite.patientId.trim().isEmpty) {
+      throw StateError('Invite is missing patientId.');
+    }
+
+    final inviteRef = _invitesCollection().doc(invite.id);
+    final role = CaregiverRoleX.fromValue(invite.role).name;
+
+    await _firestore.runTransaction((tx) async {
+      final inviteSnap = await tx.get(inviteRef);
+      if (!inviteSnap.exists) {
+        throw StateError('Invite no longer exists.');
+      }
+      final inviteData = inviteSnap.data() ?? const <String, dynamic>{};
+      final status = (inviteData['status'] as String? ?? '').toLowerCase();
+      if (status != 'pending') {
+        throw StateError('Invite is already ${inviteData['status'] ?? 'processed'}.');
+      }
+
+      tx.set(_patientCaregiverDoc(invite.patientId, user.uid), {
+        'uid': user.uid,
+        'email': (user.email ?? '').trim().toLowerCase(),
+        'displayName': (user.displayName ?? '').trim(),
+        'role': role,
+        'status': 'accepted',
+        'acceptedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      tx.set(_userDoc(user.uid), {
+        'patientIds': FieldValue.arrayUnion([invite.patientId]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      tx.set(inviteRef, {
+        'status': 'accepted',
+        'invitedUserId': user.uid,
+        'respondedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
+
+    // Keep legacy caregiver entries in sync for current read paths.
+    final email = (user.email ?? '').trim().toLowerCase();
+    if (email.isEmpty) return;
+    final legacyCaregiverRows = await _subCollection(invite.patientId, 'caregivers')
+        .where('contact', isEqualTo: email)
+        .get();
+    for (final doc in legacyCaregiverRows.docs) {
+      await doc.reference.set({
+        'inviteStatus': 'accepted',
+        'acceptedBy': user.uid,
+        'acceptedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+  }
+
+  Future<void> rejectInvite({
+    required User user,
+    required CareInvite invite,
+  }) async {
+    await _invitesCollection().doc(invite.id).set({
+      'status': 'rejected',
+      'invitedUserId': user.uid,
+      'respondedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<CaregiverRole> resolveCaregiverRoleForContext({
+    required String careContextId,
+    required User user,
+  }) async {
+    if (careContextId == user.uid) {
+      return CaregiverRole.admin;
+    }
+
+    final patientMembership = await _patientCaregiverDoc(careContextId, user.uid).get();
+    if (patientMembership.exists) {
+      final roleValue = patientMembership.data()?['role'] as String?;
+      return CaregiverRoleX.fromValue(roleValue);
+    }
+
+    final email = user.email?.trim().toLowerCase();
+    if (email == null || email.isEmpty) {
+      return CaregiverRole.viewer;
+    }
+    final legacyRows = await _subCollection(careContextId, 'caregivers')
+        .where('contact', isEqualTo: email)
+        .limit(1)
+        .get();
+    if (legacyRows.docs.isEmpty) {
+      return CaregiverRole.viewer;
+    }
+    final roleValue = legacyRows.docs.first.data()['role'] as String?;
+    return CaregiverRoleX.fromValue(roleValue);
+  }
+
   Stream<AppUserProfile?> watchUserProfile(String uid) {
     return _userDoc(uid).snapshots().map((snapshot) {
       final data = snapshot.data();
@@ -214,9 +514,31 @@ class CareCrewRepository {
     required String uid,
     required PatientProfile profile,
   }) async {
+    final patientId = uid;
     try {
       await _patientDoc(uid).set(
         profile.toMap(),
+        SetOptions(merge: true),
+      );
+      await _patientProfileDoc(patientId).set(
+        profile.toMap(),
+        SetOptions(merge: true),
+      );
+      await _patientCaregiverDoc(patientId, uid).set(
+        {
+          'uid': uid,
+          'role': CaregiverRole.admin.name,
+          'status': 'accepted',
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+      await _userDoc(uid).set(
+        {
+          'patientIds': FieldValue.arrayUnion([patientId]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
         SetOptions(merge: true),
       );
     } on FirebaseException catch (error) {
@@ -256,10 +578,43 @@ class CareCrewRepository {
     required CaregiverEntry caregiver,
   }) async {
     final ref = _subCollection(uid, 'caregivers').doc();
+    final patientProfileSnapshot = await _patientDoc(uid).get();
+    final patientName = (patientProfileSnapshot.data()?['fullName'] as String?)?.trim();
+    final inviteRef = _invitesCollection().doc();
+    final actorName = (_auth.currentUser?.displayName ?? '').trim();
+
     await ref.set({
       ...caregiver.toMap(),
       'id': ref.id,
     });
+
+    await _patientCaregiverDoc(uid, uid).set(
+      {
+        'uid': uid,
+        'role': CaregiverRole.admin.name,
+        'status': 'accepted',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+
+    await inviteRef.set(
+      CareInvite(
+        id: inviteRef.id,
+        patientId: uid,
+        role: CaregiverRoleX.fromValue(caregiver.role).name,
+        status: 'pending',
+        invitedBy: _auth.currentUser?.uid ?? uid,
+        invitedUserId: null,
+        invitedEmail: caregiver.contact.trim().toLowerCase(),
+        invitedPhone: caregiver.mobile.trim().isEmpty ? null : caregiver.mobile.trim(),
+        patientName: patientName?.isEmpty == true ? null : patientName,
+        invitedByName: actorName.isEmpty ? null : actorName,
+        createdAt: DateTime.now(),
+      ).toMap(),
+    );
+
     await addActivityLog(
       uid: uid,
       type: 'caregiver_added',
@@ -270,7 +625,36 @@ class CareCrewRepository {
   }
 
   Future<void> deleteCaregiver({required String uid, required String caregiverId}) async {
-    await _subCollection(uid, 'caregivers').doc(caregiverId).delete();
+    final caregiverRef = _subCollection(uid, 'caregivers').doc(caregiverId);
+    final caregiverSnapshot = await caregiverRef.get();
+    final caregiverData = caregiverSnapshot.data() ?? const <String, dynamic>{};
+    final contact = (caregiverData['contact'] as String? ?? '').trim().toLowerCase();
+    final acceptedBy = (caregiverData['acceptedBy'] as String?)?.trim();
+
+    await caregiverRef.delete();
+
+    if (acceptedBy != null && acceptedBy.isNotEmpty) {
+      await _patientCaregiverDoc(uid, acceptedBy).delete();
+    }
+
+    if (contact.isNotEmpty) {
+      final invites = await _invitesCollection()
+          .where('patientId', isEqualTo: uid)
+          .where('invitedEmail', isEqualTo: contact)
+          .where('status', isEqualTo: 'pending')
+          .get();
+      for (final doc in invites.docs) {
+        await doc.reference.set(
+          {
+            'status': 'rejected',
+            'respondedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+    }
+
     await addActivityLog(
       uid: uid,
       type: 'caregiver_removed',
@@ -335,7 +719,7 @@ class CareCrewRepository {
     String? actor,
   }) async {
     final now = DateTime.now();
-    final todayKey = _dayKey(now);
+    final doseKey = _dayKey(medication.createdAt ?? now);
     final nextStock = medication.currentStock == null
         ? null
         : (medication.currentStock! > 0 ? medication.currentStock! - 1 : 0);
@@ -343,8 +727,8 @@ class CareCrewRepository {
       {
         'status': 'taken',
         'lastTakenAt': Timestamp.fromDate(now),
-        'lastTakenDateKey': todayKey,
-        if (nextStock != null) 'currentStock': nextStock,
+        'lastTakenDateKey': doseKey,
+        'currentStock': nextStock,
         'updatedAt': FieldValue.serverTimestamp(),
       },
     );
@@ -358,23 +742,55 @@ class CareCrewRepository {
     );
   }
 
+  Future<void> markMedicationNotTaken({
+    required String uid,
+    required MedicationEntry medication,
+    String? actor,
+  }) async {
+    await _subCollection(uid, 'medications').doc(medication.id).update(
+      {
+        'status': 'pending',
+        'lastTakenAt': null,
+        'lastTakenDateKey': null,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+    );
+    await addActivityLog(
+      uid: uid,
+      type: 'medication_updated',
+      title: 'Medication marked not taken',
+      details: '${medication.name} ${medication.dosage} marked as not taken.',
+      actor: actor ?? 'Caregiver',
+      meta: {'medicationId': medication.id},
+    );
+  }
+
   Future<void> syncMedicationStatuses(String uid) async {
     final snapshot = await _subCollection(uid, 'medications').get();
     final now = DateTime.now();
-    final currentMinutes = _minutesOfDay(now);
-    final todayKey = _dayKey(now);
 
     for (final doc in snapshot.docs) {
       final medication = MedicationEntry.fromMap(doc.id, doc.data());
-      final scheduledMinutes = medication.scheduledHour * 60 + medication.scheduledMinute;
-      final isPastDue = currentMinutes >= scheduledMinutes;
-      final alreadyLoggedMissed = medication.lastMissedDateKey == todayKey;
-      final alreadyTakenToday = medication.lastTakenDateKey == todayKey;
-      if (isPastDue && !alreadyTakenToday && !alreadyLoggedMissed) {
+      final created = medication.createdAt;
+      if (created == null) continue;
+
+      final scheduledAt = DateTime(
+        created.year,
+        created.month,
+        created.day,
+        medication.scheduledHour,
+        medication.scheduledMinute,
+      );
+      final doseKey = _dayKey(scheduledAt);
+      final isPastDue = !now.isBefore(scheduledAt);
+      final alreadyLoggedMissed = medication.lastMissedDateKey == doseKey;
+      final alreadyTakenForDose = medication.status == 'taken' || medication.lastTakenDateKey == doseKey;
+
+      if (isPastDue && !alreadyTakenForDose && !alreadyLoggedMissed) {
         await doc.reference.update(
           {
             'status': 'missed',
-            'lastMissedDateKey': todayKey,
+            'lastMissedDateKey': doseKey,
             'updatedAt': FieldValue.serverTimestamp(),
           },
         );
@@ -386,7 +802,7 @@ class CareCrewRepository {
           actor: 'System',
           meta: {'medicationId': medication.id},
         );
-      } else if (!isPastDue && medication.status == 'missed' && medication.lastMissedDateKey != todayKey) {
+      } else if (!isPastDue && medication.status == 'missed') {
         await doc.reference.update(
           {
             'status': 'pending',
@@ -729,6 +1145,16 @@ class CareCrewRepository {
   }
 
   Future<String> resolveCareContextUid(User user) async {
+    try {
+      final userSnapshot = await _userDoc(user.uid).get();
+      final patientIds = (userSnapshot.data()?['patientIds'] as List?)?.whereType<String>().toList() ?? const <String>[];
+      if (patientIds.isNotEmpty) {
+        return patientIds.first;
+      }
+    } catch (_) {
+      // Fall through to legacy care-context resolution.
+    }
+
     final email = user.email?.trim().toLowerCase();
     if (email == null || email.isEmpty) return user.uid;
 
@@ -807,12 +1233,34 @@ class CareCrewRepository {
     for (final doc in snapshot.docs) {
       final parentPath = doc.reference.parent.parent?.path;
       if (parentPath != null && parentPath.contains(ownerUid)) {
+        final role = CaregiverRoleX.fromValue(doc.data()['role'] as String?).name;
         await doc.reference.update({
           'inviteStatus': 'accepted',
           'acceptedAt': FieldValue.serverTimestamp(),
           'acceptedBy': caregiverUid,
           'updatedAt': FieldValue.serverTimestamp(),
         });
+
+        await _patientCaregiverDoc(ownerUid, caregiverUid).set(
+          {
+            'uid': caregiverUid,
+            'email': caregiverEmail.toLowerCase(),
+            'role': role,
+            'status': 'accepted',
+            'acceptedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+            'createdAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+
+        await _userDoc(caregiverUid).set(
+          {
+            'patientIds': FieldValue.arrayUnion([ownerUid]),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
       }
     }
   }

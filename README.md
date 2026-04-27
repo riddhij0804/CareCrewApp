@@ -2,6 +2,56 @@
 
 CareCrew is a mobile app for families and caregivers who need one place to coordinate a patient’s daily care. It helps answer a simple problem: when care is split across medicines, vitals, appointments, documents, and multiple people, important things get missed or scattered. CareCrew brings all of that into one shared flow so the patient’s recovery can be followed with less confusion and less delay.
 
+## What is already wired
+
+- Firebase Authentication
+- Cloud Firestore
+- Firebase Storage
+- Riverpod state management
+- Real-time streams for user data
+- Single-user data isolation under `users/{uid}/...`
+
+## Care Circle Schema (Extended)
+
+The app now supports shared patient membership and invite workflows while keeping legacy `users/{uid}/...` collections compatible.
+
+### Shared patient membership
+
+```text
+patients/{patientId}/
+	profile/main
+	caregivers/{uid}:
+		role: "admin" | "editor" | "viewer" | "doctor"
+		status: "accepted"
+
+users/{uid}/
+	patientIds: [patientId, ...]
+```
+
+### Invites
+
+```text
+invites/{inviteId}:
+	patientId
+	invitedUserId (optional until bound)
+	invitedEmail
+	role
+	status: "pending" | "accepted" | "rejected"
+	invitedBy
+	createdAt
+	respondedAt
+```
+
+## What you still must do in Firebase Console
+
+1. Make sure the Android app registered in Firebase matches the package name used by this project.
+	- Current app package: `com.carecrew.carecrew_app`
+	- The `google-services.json` currently in the project was generated for `com.example.carecrewapp`, so it should be replaced with the file for the actual package you want to ship.
+2. Enable Authentication -> Sign-in method -> Email/Password.
+3. Create Firestore in production or test mode, then apply your own security rules.
+4. Enable Firebase Storage.
+5. If you want phone login, enable Phone authentication and configure reCAPTCHA / APNs where needed.
+6. If you use App Check, add a provider; otherwise the warning about no App Check provider can be ignored for local development.
 ## The Problem
 
 Caregiving usually fails in small ways, not one big way. A medicine is forgotten. A symptom is not written down. An appointment gets buried in a chat thread. A caregiver does not know what someone else already handled. Over time, that creates stress for the family and makes it harder to keep the patient safe and consistent.

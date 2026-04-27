@@ -1,7 +1,6 @@
+import 'package:carecrew_app/src/input_validators.dart';
 import 'package:carecrew_app/src/providers.dart';
 import 'package:carecrew_app/src/repository.dart';
-import 'package:carecrew_app/src/screens/setup_flow_screens.dart';
-import 'package:carecrew_app/src/screens/shell_screen.dart';
 import 'package:carecrew_app/src/widgets.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -30,31 +29,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   bool _isBusy = false;
 
   Future<void> _routeAfterSignIn(CareCrewRepository repo) async {
-    final user = repo.currentUser;
-    if (user == null || !mounted) return;
-
-    try {
-      final patientSnapshot = await repo.firestore
-          .collection('users')
-          .doc(user.uid)
-          .collection('patient')
-          .doc('main')
-          .get();
-
-      if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) => patientSnapshot.exists ? const ShellScreen() : const SetupFlowScreen(),
-        ),
-        (route) => false,
-      );
-    } catch (_) {
-      if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const SetupFlowScreen()),
-        (route) => false,
-      );
-    }
+    // AuthGate listens to auth state and handles routing to pending invites,
+    // patient picker, setup flow, or shell as needed.
+    if (!mounted) return;
   }
 
   @override
@@ -125,13 +102,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         name: _signUpNameController.text.trim(),
         email: _signUpEmailController.text.trim(),
         password: _signUpPasswordController.text.trim(),
-        mobileNumber: _signUpMobileController.text.trim(),
+        mobileNumber: InputValidators.normalizePhone(_signUpMobileController.text),
       );
-      if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const SetupFlowScreen()),
-        (route) => false,
-      );
+      await _routeAfterSignIn(repo);
     } on Exception catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
@@ -236,9 +209,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 keyboardType: _useEmailLogin ? TextInputType.emailAddress : TextInputType.phone,
                 icon: _useEmailLogin ? Icons.email_outlined : Icons.call_outlined,
                 validator: (value) {
-                  if (value == null || value.trim().isEmpty) return 'This field is required';
-                  if (_useEmailLogin && !value.contains('@')) return 'Enter a valid email';
-                  return null;
+                  return _useEmailLogin
+                      ? InputValidators.email(value)
+                      : InputValidators.phone(value, fieldLabel: 'mobile number');
                 },
               ),
               const SizedBox(height: 14),
@@ -248,7 +221,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 hintText: '••••••••••',
                 obscureText: true,
                 icon: Icons.visibility_outlined,
-                validator: (value) => value == null || value.length < 6 ? 'Password must be at least 6 characters' : null,
+                validator: (value) => InputValidators.password(value),
               ),
               const SizedBox(height: 20),
               CareCrewPrimaryButton(
@@ -271,7 +244,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   onPressed: () async {
                     final messenger = ScaffoldMessenger.of(context);
                     final email = _signInEmailController.text.trim();
-                    if (email.isEmpty || !email.contains('@')) {
+                    if (InputValidators.email(email) != null) {
                       messenger.showSnackBar(
                         const SnackBar(content: Text('Enter your email first to reset the password.')),
                       );
@@ -333,7 +306,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 label: 'Full Name',
                 hintText: 'Enter your name here',
                 icon: Icons.person,
-                validator: (value) => value == null || value.trim().isEmpty ? 'Name is required' : null,
+                validator: (value) => InputValidators.requiredText(value, fieldName: 'Name'),
               ),
               const SizedBox(height: 14),
               _AuthField(
@@ -342,6 +315,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 hintText: '+91 1234567890',
                 keyboardType: TextInputType.phone,
                 icon: Icons.call_outlined,
+                validator: (value) => InputValidators.phone(value, fieldLabel: 'mobile number'),
               ),
               const SizedBox(height: 14),
               _AuthField(
@@ -350,7 +324,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 hintText: 'hello@example.com',
                 keyboardType: TextInputType.emailAddress,
                 icon: Icons.email_outlined,
-                validator: (value) => value == null || !value.contains('@') ? 'Enter a valid email' : null,
+                validator: (value) => InputValidators.email(value),
               ),
               const SizedBox(height: 14),
               _AuthField(
@@ -359,7 +333,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 hintText: '••••••••••',
                 obscureText: true,
                 icon: Icons.visibility_outlined,
-                validator: (value) => value == null || value.length < 6 ? 'Password must be at least 6 characters' : null,
+                validator: (value) => InputValidators.password(value),
               ),
               const SizedBox(height: 20),
               CareCrewPrimaryButton(

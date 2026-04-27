@@ -1,6 +1,8 @@
 import 'package:carecrew_app/src/providers.dart';
 import 'package:carecrew_app/src/screens/accept_invite_screen.dart';
 import 'package:carecrew_app/src/screens/auth_screen.dart';
+import 'package:carecrew_app/src/screens/patient_picker_screen.dart';
+import 'package:carecrew_app/src/screens/pending_invites_screen.dart';
 import 'package:carecrew_app/src/screens/shell_screen.dart';
 import 'package:carecrew_app/src/screens/setup_flow_screens.dart';
 import 'package:carecrew_app/src/theme.dart';
@@ -91,6 +93,8 @@ class AuthGate extends ConsumerStatefulWidget {
 }
 
 class _AuthGateState extends ConsumerState<AuthGate> {
+  String? _selectedCareContextUid;
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
@@ -101,13 +105,49 @@ class _AuthGateState extends ConsumerState<AuthGate> {
           return const AuthScreen();
         }
 
-        final patientState = ref.watch(patientProfileProvider(user.uid));
+        final invitesState = ref.watch(pendingInvitesProvider(user.uid));
+        if (invitesState.isLoading) {
+          return const _LoadingGate();
+        }
+        final pendingInvites = invitesState.asData?.value ?? const [];
+        if (pendingInvites.isNotEmpty) {
+          return PendingInvitesScreen(uid: user.uid, invites: pendingInvites);
+        }
+
+        final patientIdsState = ref.watch(userPatientIdsProvider(user.uid));
+        if (patientIdsState.isLoading) {
+          return const _LoadingGate();
+        }
+
+        final patientIds = patientIdsState.asData?.value ?? const <String>[];
+        final availablePatientIds = patientIds.isEmpty ? <String>[user.uid] : patientIds;
+
+        if (_selectedCareContextUid != null && !availablePatientIds.contains(_selectedCareContextUid)) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() => _selectedCareContextUid = null);
+          });
+        }
+
+        if (availablePatientIds.length > 1 && _selectedCareContextUid == null) {
+          return PatientPickerScreen(
+            patientIds: availablePatientIds,
+            onSelected: (patientId) {
+              if (!mounted) return;
+              setState(() => _selectedCareContextUid = patientId);
+            },
+          );
+        }
+
+        final careContextUid = _selectedCareContextUid ?? availablePatientIds.first;
+
+        final patientState = ref.watch(patientProfileProvider(careContextUid));
         return patientState.when(
           data: (patient) {
             if (patient == null) {
               return const SetupFlowScreen();
             }
-            return const ShellScreen();
+            return ShellScreen(forcedCareUid: careContextUid);
           },
           loading: () => const _LoadingGate(),
           error: (_, __) {

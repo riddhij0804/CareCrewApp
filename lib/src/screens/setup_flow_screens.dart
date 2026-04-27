@@ -1,3 +1,4 @@
+import 'package:carecrew_app/src/input_validators.dart';
 import 'package:carecrew_app/src/models.dart';
 import 'package:carecrew_app/src/providers.dart';
 import 'package:carecrew_app/src/screens/shell_screen.dart';
@@ -85,7 +86,7 @@ class _PatientProfileSetupScreenState extends ConsumerState<PatientProfileSetupS
         age: int.parse(_ageController.text.trim()),
         dischargeDate: _dischargeDate!,
         condition: _conditionController.text.trim(),
-        emergencyContact: _emergencyContactController.text.trim(),
+        emergencyContact: InputValidators.normalizePhone(_emergencyContactController.text),
       );
       
       await ref.read(repositoryProvider).savePatientProfile(
@@ -98,7 +99,7 @@ class _PatientProfileSetupScreenState extends ConsumerState<PatientProfileSetupS
         const SnackBar(content: Text('Patient profile saved successfully!')),
       );
       
-      Navigator.of(context).push(
+      Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const CareGiversSetupScreen()),
       );
     } catch (error) {
@@ -155,7 +156,7 @@ class _PatientProfileSetupScreenState extends ConsumerState<PatientProfileSetupS
                         controller: _fullNameController,
                         label: 'Patient Full Name',
                         hintText: 'e.g. Ram Mishra',
-                        validator: (value) => value == null || value.trim().isEmpty ? 'Patient name is required' : null,
+                        validator: (value) => InputValidators.requiredText(value, fieldName: 'Patient name'),
                       ),
                       const SizedBox(height: 14),
                       Row(
@@ -196,7 +197,7 @@ class _PatientProfileSetupScreenState extends ConsumerState<PatientProfileSetupS
                         label: 'Primary Condition / Diagnosis',
                         hintText: 'e.g. Post-op recovery',
                         maxLines: 3,
-                        validator: (value) => value == null || value.trim().isEmpty ? 'Condition is required' : null,
+                        validator: (value) => InputValidators.requiredText(value, fieldName: 'Condition'),
                       ),
                       const SizedBox(height: 14),
                       CareCrewTextField(
@@ -204,7 +205,7 @@ class _PatientProfileSetupScreenState extends ConsumerState<PatientProfileSetupS
                         label: 'Emergency Contact Number',
                         hintText: 'e.g. +91 9876543210',
                         keyboardType: TextInputType.phone,
-                        validator: (value) => value == null || value.trim().isEmpty ? 'Emergency contact is required' : null,
+                        validator: (value) => InputValidators.phone(value, fieldLabel: 'emergency contact number'),
                       ),
                       const SizedBox(height: 16),
                       CareCrewPrimaryButton(
@@ -271,7 +272,7 @@ class _CareGiversSetupScreenState extends ConsumerState<CareGiversSetupScreen> {
               id: '',
               name: _nameController.text.trim(),
               contact: _emailController.text.trim().toLowerCase(),
-              mobile: _mobileController.text.trim(),
+              mobile: InputValidators.normalizePhone(_mobileController.text),
               role: _selectedRole!.name,
               relationship: _relationshipController.text.trim(),
               inviteStatus: 'pending',
@@ -384,20 +385,22 @@ class _CareGiversSetupScreenState extends ConsumerState<CareGiversSetupScreen> {
                             controller: _nameController,
                             label: 'Caregiver Name',
                             hintText: 'Enter name',
-                            validator: (value) => value == null || value.trim().isEmpty ? 'Caregiver name is required' : null,
+                            validator: (value) => InputValidators.requiredText(value, fieldName: 'Caregiver name'),
                           ),
                           const SizedBox(height: 14),
                           CareCrewTextField(
                             controller: _emailController,
                             label: 'Email',
                             hintText: 'caregiver@example.com',
-                            validator: (value) => value == null || value.trim().isEmpty ? 'Email is required' : null,
+                            validator: (value) => InputValidators.email(value),
                           ),
                           const SizedBox(height: 14),
                           CareCrewTextField(
                             controller: _mobileController,
                             label: 'Mobile Number',
                             hintText: '+1-XXX-XXX-XXXX',
+                            keyboardType: TextInputType.phone,
+                            validator: (value) => InputValidators.phone(value, required: false, fieldLabel: 'mobile number'),
                           ),
                           const SizedBox(height: 14),
                           CareCrewTextField(

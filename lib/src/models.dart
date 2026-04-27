@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum CaregiverRole { admin, editor, viewer }
+enum CaregiverRole { admin, editor, viewer, doctor }
 
 extension CaregiverRoleX on CaregiverRole {
   String get label {
@@ -11,6 +11,8 @@ extension CaregiverRoleX on CaregiverRole {
         return 'Editor';
       case CaregiverRole.viewer:
         return 'Viewer';
+      case CaregiverRole.doctor:
+        return 'Doctor';
     }
   }
 
@@ -20,11 +22,19 @@ extension CaregiverRoleX on CaregiverRole {
         return CaregiverRole.admin;
       case 'viewer':
         return CaregiverRole.viewer;
+      case 'doctor':
+        return CaregiverRole.doctor;
       case 'editor':
       default:
         return CaregiverRole.editor;
     }
   }
+
+  bool get isReadOnly => this == CaregiverRole.viewer || this == CaregiverRole.doctor;
+
+  bool get canEdit => !isReadOnly;
+
+  bool get canEditThresholds => this == CaregiverRole.doctor;
 }
 
 enum AppointmentStatus { scheduled, completed, cancelled }
@@ -184,7 +194,8 @@ class CaregiverEntry {
   final DateTime? updatedAt;
 
   CaregiverRole get roleValue => CaregiverRoleX.fromValue(role);
-  bool get canEdit => roleValue != CaregiverRole.viewer;
+  bool get isReadOnly => roleValue.isReadOnly;
+  bool get canEdit => roleValue.canEdit;
 
   factory CaregiverEntry.fromMap(String id, Map<String, dynamic> map) {
     return CaregiverEntry(
@@ -546,6 +557,71 @@ class DocumentEntry {
       'mimeType': mimeType,
       'addedBy': addedBy,
       'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : FieldValue.serverTimestamp(),
+    };
+  }
+}
+
+class CareInvite {
+  CareInvite({
+    required this.id,
+    required this.patientId,
+    required this.role,
+    required this.status,
+    required this.invitedBy,
+    this.invitedUserId,
+    this.invitedEmail,
+    this.invitedPhone,
+    this.patientName,
+    this.invitedByName,
+    this.createdAt,
+    this.respondedAt,
+  });
+
+  final String id;
+  final String patientId;
+  final String role;
+  final String status;
+  final String invitedBy;
+  final String? invitedUserId;
+  final String? invitedEmail;
+  final String? invitedPhone;
+  final String? patientName;
+  final String? invitedByName;
+  final DateTime? createdAt;
+  final DateTime? respondedAt;
+
+  CaregiverRole get roleValue => CaregiverRoleX.fromValue(role);
+
+  factory CareInvite.fromMap(String id, Map<String, dynamic> map) {
+    return CareInvite(
+      id: id,
+      patientId: (map['patientId'] as String?) ?? '',
+      role: (map['role'] as String?) ?? 'viewer',
+      status: (map['status'] as String?) ?? 'pending',
+      invitedBy: (map['invitedBy'] as String?) ?? '',
+      invitedUserId: map['invitedUserId'] as String?,
+      invitedEmail: map['invitedEmail'] as String?,
+      invitedPhone: map['invitedPhone'] as String?,
+      patientName: map['patientName'] as String?,
+      invitedByName: map['invitedByName'] as String?,
+      createdAt: _date(map['createdAt']),
+      respondedAt: _date(map['respondedAt']),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'patientId': patientId,
+      'role': role,
+      'status': status,
+      'invitedBy': invitedBy,
+      'invitedUserId': invitedUserId,
+      'invitedEmail': invitedEmail,
+      'invitedPhone': invitedPhone,
+      'patientName': patientName,
+      'invitedByName': invitedByName,
+      'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : FieldValue.serverTimestamp(),
+      'respondedAt': respondedAt != null ? Timestamp.fromDate(respondedAt!) : null,
     };
   }
 }

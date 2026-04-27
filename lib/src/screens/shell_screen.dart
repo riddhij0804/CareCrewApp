@@ -6,7 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class ShellScreen extends ConsumerStatefulWidget {
-  const ShellScreen({super.key});
+  const ShellScreen({super.key, this.forcedCareUid});
+
+  final String? forcedCareUid;
 
   @override
   ConsumerState<ShellScreen> createState() => _ShellScreenState();
@@ -30,7 +32,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
 
     final repository = ref.watch(repositoryProvider);
 
-    if (_resolvedForAuthUid != user.uid && !_resolvingCareUid) {
+    if (widget.forcedCareUid == null && _resolvedForAuthUid != user.uid && !_resolvingCareUid) {
       _resolvingCareUid = true;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         final resolvedUid = await repository.resolveCareContextUid(user);
@@ -44,7 +46,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
       });
     }
 
-    final effectiveUid = _activeCareUid ?? user.uid;
+    final effectiveUid = widget.forcedCareUid ?? _activeCareUid ?? user.uid;
 
     if (_syncedForUid != effectiveUid) {
       _syncedForUid = effectiveUid;
@@ -69,7 +71,10 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
     final appts = ref.watch(appointmentsProvider(effectiveUid)).value ?? const <AppointmentEntry>[];
 
     final medSig = meds
-        .map((m) => '${m.id}|${m.name}|${m.scheduledHour}|${m.scheduledMinute}')
+      .map(
+        (m) =>
+          '${m.id}|${m.name}|${m.scheduledHour}|${m.scheduledMinute}|${m.status}|${m.lastTakenDateKey}|${m.createdAt?.toIso8601String() ?? ''}',
+      )
         .join('~');
     if (medSig != _lastMedicationReminderSync) {
       _lastMedicationReminderSync = medSig;

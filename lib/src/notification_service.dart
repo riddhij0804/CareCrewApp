@@ -82,7 +82,10 @@ class NotificationService {
     await initialize();
 
     final signature = medications
-        .map((m) => '${m.id}|${m.name}|${m.scheduledHour}|${m.scheduledMinute}')
+        .map(
+          (m) =>
+              '${m.id}|${m.name}|${m.scheduledHour}|${m.scheduledMinute}|${m.status}|${m.lastTakenDateKey}|${m.createdAt?.toIso8601String() ?? ''}',
+        )
         .join('~');
     if (signature == _medicationSignature) return;
 
@@ -91,34 +94,39 @@ class NotificationService {
     }
     _medicationReminderIds.clear();
 
+    final now = tz.TZDateTime.now(tz.local);
     for (final med in medications) {
-      final reminderMinutes = (med.scheduledHour * 60 + med.scheduledMinute - 5) % (24 * 60);
-      final reminderHour = reminderMinutes ~/ 60;
-      final reminderMinute = reminderMinutes % 60;
-
-      final id = _stableId('med:$uid:${med.id}', offset: 100000);
-      _medicationReminderIds.add(id);
-
-      final now = tz.TZDateTime.now(tz.local);
-      var scheduled = tz.TZDateTime(
-        tz.local,
-        now.year,
-        now.month,
-        now.day,
-        reminderHour,
-        reminderMinute,
-      );
-      if (scheduled.isBefore(now)) {
-        scheduled = scheduled.add(const Duration(days: 1));
+      if (med.status.toLowerCase() == 'taken') {
+        continue;
       }
+
+      final created = med.createdAt;
+      if (created == null) {
+        continue;
+      }
+
+      final scheduledAt = tz.TZDateTime(
+        tz.local,
+        created.year,
+        created.month,
+        created.day,
+        med.scheduledHour,
+        med.scheduledMinute,
+      );
+      final reminderAt = scheduledAt.subtract(const Duration(minutes: 5));
+      if (!reminderAt.isAfter(now)) {
+        continue;
+      }
+
+      final id = _stableId('med:$uid:${med.id}:${created.toIso8601String()}', offset: 100000);
+      _medicationReminderIds.add(id);
 
       await _scheduleWithFallback(
         id: id,
         title: 'Medication Reminder',
         body: "Reminder: Medication '${med.name}' is scheduled at ${med.timeLabel}",
-        scheduled: scheduled,
+        scheduled: reminderAt,
         details: _reminderDetails,
-        matchDateTimeComponents: DateTimeComponents.time,
       );
     }
 
@@ -196,8 +204,17 @@ class NotificationService {
   }
 
   int _stableId(String value, {required int offset}) {
-    final hash = value.hashCode & 0x7fffffff;
+    final hash = _deterministicHash(value);
     return offset + (hash % 90000);
+  }
+
+  int _deterministicHash(String value) {
+    var hash = 0x811C9DC5;
+    for (final unit in value.codeUnits) {
+      hash ^= unit;
+      hash = (hash * 0x01000193) & 0x7fffffff;
+    }
+    return hash & 0x7fffffff;
   }
 
   int _ephemeralId({required int offset}) {

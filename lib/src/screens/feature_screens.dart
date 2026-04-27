@@ -1,14 +1,15 @@
 import 'dart:math' as math;
 
+import 'package:carecrew_app/src/input_validators.dart';
 import 'package:carecrew_app/src/models.dart';
 import 'package:carecrew_app/src/providers.dart';
-import 'package:carecrew_app/src/screens/auth_screen.dart';
 import 'package:carecrew_app/src/widgets.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -36,6 +37,8 @@ Color _statusColor(String status) {
       return const Color(0xFFB01E24);
     case 'viewer':
       return const Color(0xFF8AA0BD);
+    case 'doctor':
+      return const Color(0xFF3E7CA6);
     case 'editor':
       return const Color(0xFFB477E7);
     case 'admin':
@@ -60,6 +63,67 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
+  bool _patientWithMe = false;
+  bool _updatingPatientLocation = false;
+  String? _lastPatientLocation;
+  String? _patientLocationError;
+
+  Future<void> _updatePatientLocation() async {
+    setState(() {
+      _updatingPatientLocation = true;
+      _patientLocationError = null;
+    });
+
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        await Geolocator.openLocationSettings();
+        setState(() {
+          _patientLocationError = 'Location service is off. Please enable GPS.';
+        });
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          setState(() {
+            _patientLocationError = 'Location permission denied.';
+          });
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        setState(() {
+          _patientLocationError = 'Location permission permanently denied. Allow it from settings.';
+        });
+        return;
+      }
+
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      final locationString =
+          'Lat: ${pos.latitude.toStringAsFixed(6)}, Lng: ${pos.longitude.toStringAsFixed(6)}';
+      setState(() {
+        _lastPatientLocation = locationString;
+      });
+
+      await ref.read(repositoryProvider).setLastPatientLocation(uid: widget.uid, location: locationString);
+    } catch (_) {
+      setState(() {
+        _patientLocationError = 'Unable to fetch GPS location right now.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _updatingPatientLocation = false;
+        });
+      }
+    }
+  }
   bool _synced = false;
 
   @override
@@ -78,27 +142,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final medsAsync = ref.watch(medicationsProvider(widget.uid));
     final apptsAsync = ref.watch(appointmentsProvider(widget.uid));
     final vitalsAsync = ref.watch(vitalsProvider(widget.uid));
+    final role = ref.watch(careRoleProvider(widget.uid)).asData?.value ?? CaregiverRole.admin;
+    final canEdit = role.canEdit;
+
+    // Get the authenticated user's UID for profile navigation
+    final authUser = ref.watch(authStateProvider).value;
+    final myUid = authUser?.uid;
 
     // Handle any errors from the patient profile stream
     if (patientAsync.hasError) {
       return Scaffold(
         appBar: AppBar(title: const Text('CareCrew')),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.red),
-              const SizedBox(height: 16),
-              const Text('Error loading patient profile'),
-              const SizedBox(height: 8),
-              Text(patientAsync.error.toString(), style: const TextStyle(fontSize: 12)),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => ref.invalidate(patientProfileProvider(widget.uid)),
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
+        body: ListView(
+          padding: const EdgeInsets.all(18),
+          children: [
+            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            const SizedBox(height: 16),
+            const Text('Error loading patient profile'),
+            const SizedBox(height: 8),
+            Text(patientAsync.error.toString(), style: const TextStyle(fontSize: 12)),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () => ref.invalidate(patientProfileProvider(widget.uid)),
+              child: const Text('Retry'),
+            ),
+          ],
         ),
       );
     }
@@ -162,7 +230,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ),
                         const Spacer(),
                         IconButton(
-                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(uid: widget.uid))),
+                          onPressed: () {
+                            if (myUid != null) {
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(uid: myUid)));
+                            }
+                          },
                           icon: const Icon(Icons.settings_rounded, color: Colors.white),
                         ),
                       ],
@@ -278,6 +350,83 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                   const SizedBox(height: 18),
                   Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8F8F8),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Checkbox(
+                              value: _patientWithMe,
+                              onChanged: _updatingPatientLocation
+                                  ? null
+                                  : (val) async {
+                                      final checked = val ?? false;
+                                      setState(() {
+                                        _patientWithMe = checked;
+                                        if (!checked) {
+                                          _patientLocationError = null;
+                                        }
+                                      });
+                                      if (checked) {
+                                        await _updatePatientLocation();
+                                      }
+                                    },
+                            ),
+                            Expanded(
+                              child: Text(
+                                'Patient Currently with Me',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                            if (_updatingPatientLocation)
+                              const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                          ],
+                        ),
+                        if (_patientWithMe && _lastPatientLocation != null)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 12, bottom: 4),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Last Recorded Patient Location',
+                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _lastPatientLocation!,
+                                    style: Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        if (_patientWithMe && _patientLocationError != null)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 12, bottom: 4),
+                              child: Text(
+                                _patientLocationError!,
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF8A1120)),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF8F8F8),
@@ -347,8 +496,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ),
                           const SizedBox(height: 8),
                           CareCrewPrimaryButton(
-                            label: primaryMed.canBeMarkedTaken ? 'Mark as taken' : 'Already taken',
-                            onPressed: primaryMed.canBeMarkedTaken
+                            label: !canEdit
+                                ? 'Read only'
+                                : (primaryMed.canBeMarkedTaken ? 'Mark as taken' : 'Already taken'),
+                            onPressed: canEdit && primaryMed.canBeMarkedTaken
                                 ? () async {
                                     await ref.read(repositoryProvider).markMedicationTaken(uid: widget.uid, medication: primaryMed);
                                     ref.invalidate(medicationsProvider(widget.uid));
@@ -364,7 +515,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             subtitle: 'Add the first medication to start tracking daily care.',
                             action: CareCrewPrimaryButton(
                               label: 'Add Medication',
-                              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => MedicationsScreen(uid: widget.uid))),
+                              onPressed: canEdit
+                                  ? () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => MedicationsScreen(uid: widget.uid)))
+                                  : null,
                               leading: const Icon(Icons.medication_rounded),
                             ),
                           ),
@@ -527,29 +680,41 @@ class MedicationsScreen extends ConsumerStatefulWidget {
 }
 
 class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
+  final TextEditingController _numDaysController = TextEditingController(text: '1');
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _dosageController = TextEditingController();
   final _stockController = TextEditingController();
   final _notesController = TextEditingController();
   final _timeDisplayController = TextEditingController();
+  final _medStartDateDisplayController = TextEditingController();
   TimeOfDay? _timeOfDay;
   DateTime _selectedDay = _startOfDay(DateTime.now());
+  DateTime _medStartDate = _startOfDay(DateTime.now());
   bool _saving = false;
   bool _showAddMedicationForm = false;
 
-  List<DateTime> get _weekDays {
-    final startOfWeek = _selectedDay.subtract(Duration(days: _selectedDay.weekday - 1));
-    return List.generate(7, (index) => startOfWeek.add(Duration(days: index)));
+  List<DateTime> get _calendarDays {
+    // Show 30 days centered around today for scrolling
+    final today = _startOfDay(DateTime.now());
+    return List.generate(30, (i) => today.subtract(Duration(days: 15 - i)));
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _medStartDateDisplayController.text = DateFormat('MMM d, yyyy').format(_medStartDate);
   }
 
   @override
   void dispose() {
+    _numDaysController.dispose();
     _nameController.dispose();
     _dosageController.dispose();
     _stockController.dispose();
     _notesController.dispose();
     _timeDisplayController.dispose();
+    _medStartDateDisplayController.dispose();
     super.dispose();
   }
 
@@ -581,7 +746,11 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
     final dosageController = TextEditingController(text: medication.dosage);
     final stockController = TextEditingController(text: medication.currentStock?.toString() ?? '');
     final notesController = TextEditingController(text: medication.notes);
+    final timeController = TextEditingController(
+      text: TimeOfDay(hour: medication.scheduledHour, minute: medication.scheduledMinute).format(context),
+    );
     var timeOfDay = TimeOfDay(hour: medication.scheduledHour, minute: medication.scheduledMinute);
+    var isTaken = medication.status == 'taken';
     var saving = false;
 
     try {
@@ -604,9 +773,11 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
                           scheduledHour: timeOfDay.hour,
                           scheduledMinute: timeOfDay.minute,
                           notes: notesController.text.trim(),
-                          status: medication.status,
-                          lastTakenAt: medication.lastTakenAt,
-                          lastTakenDateKey: medication.lastTakenDateKey,
+                          status: isTaken ? 'taken' : 'pending',
+                          lastTakenAt: isTaken ? (medication.lastTakenAt ?? DateTime.now()) : null,
+                          lastTakenDateKey: isTaken
+                              ? (medication.lastTakenDateKey ?? _dayKey(medication.createdAt ?? DateTime.now()))
+                              : null,
                           lastMissedDateKey: medication.lastMissedDateKey,
                           createdAt: medication.createdAt,
                           updatedAt: medication.updatedAt,
@@ -662,21 +833,27 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
                         ),
                         const SizedBox(height: 14),
                         CareCrewTextField(
-                          controller: TextEditingController(text: timeOfDay.format(context)),
+                          controller: timeController,
                           label: 'Time',
                           hintText: 'Choose time',
                           readOnly: true,
                           onTap: () async {
                             final picked = await showTimePicker(context: dialogContext, initialTime: timeOfDay);
                             if (picked != null) {
-                              setDialogState(() => timeOfDay = picked);
+                              setDialogState(() {
+                                timeOfDay = picked;
+                                timeController.text = picked.format(dialogContext);
+                              });
                             }
                           },
                           suffixIcon: IconButton(
                             onPressed: () async {
                               final picked = await showTimePicker(context: dialogContext, initialTime: timeOfDay);
                               if (picked != null) {
-                                setDialogState(() => timeOfDay = picked);
+                                setDialogState(() {
+                                  timeOfDay = picked;
+                                  timeController.text = picked.format(dialogContext);
+                                });
                               }
                             },
                             icon: const Icon(Icons.schedule_rounded),
@@ -688,6 +865,30 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
                           label: 'Notes',
                           hintText: 'With food, before bedtime, etc.',
                           maxLines: 3,
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ChoiceChip(
+                                label: const Text('Mark as Taken'),
+                                selected: isTaken,
+                                onSelected: (selected) {
+                                  setDialogState(() => isTaken = true);
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ChoiceChip(
+                                label: const Text('Mark as Not Taken'),
+                                selected: !isTaken,
+                                onSelected: (selected) {
+                                  setDialogState(() => isTaken = false);
+                                },
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -713,11 +914,17 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
       dosageController.dispose();
       stockController.dispose();
       notesController.dispose();
+      timeController.dispose();
     }
   }
 
   Future<void> _saveMedication() async {
     if (!_formKey.currentState!.validate()) return;
+    final parsedNumDays = int.tryParse(_numDaysController.text.trim());
+    if (parsedNumDays == null || parsedNumDays < 1) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Number of days must be at least 1.')));
+      return;
+    }
     if (_timeOfDay == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick a medication time.')));
       return;
@@ -725,20 +932,23 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
     setState(() => _saving = true);
     try {
       final now = DateTime.now();
-      await ref.read(repositoryProvider).saveMedication(
-            uid: widget.uid,
-            medication: MedicationEntry(
-              id: '',
-              name: _nameController.text.trim(),
-              dosage: _dosageController.text.trim(),
-              currentStock: int.parse(_stockController.text.trim()),
-              scheduledHour: _timeOfDay!.hour,
-              scheduledMinute: _timeOfDay!.minute,
-              notes: _notesController.text.trim(),
-              status: 'pending',
-              createdAt: DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day, now.hour, now.minute, now.second),
-            ),
-          );
+      for (int i = 0; i < parsedNumDays; i++) {
+        final medDate = _medStartDate.add(Duration(days: i));
+        await ref.read(repositoryProvider).saveMedication(
+          uid: widget.uid,
+          medication: MedicationEntry(
+            id: '',
+            name: _nameController.text.trim(),
+            dosage: _dosageController.text.trim(),
+            currentStock: int.parse(_stockController.text.trim()),
+            scheduledHour: _timeOfDay!.hour,
+            scheduledMinute: _timeOfDay!.minute,
+            notes: _notesController.text.trim(),
+            status: 'pending',
+            createdAt: DateTime(medDate.year, medDate.month, medDate.day, now.hour, now.minute, now.second),
+          ),
+        );
+      }
       _nameController.clear();
       _dosageController.clear();
       _stockController.clear();
@@ -746,6 +956,9 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
       setState(() {
         _timeOfDay = null;
         _timeDisplayController.clear();
+        _numDaysController.text = '1';
+        _medStartDate = _startOfDay(DateTime.now());
+        _medStartDateDisplayController.text = DateFormat('MMM d, yyyy').format(_medStartDate);
       });
       ref.invalidate(medicationsProvider(widget.uid));
       ref.invalidate(activityLogsProvider(widget.uid));
@@ -758,12 +971,12 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final role = ref.watch(careRoleProvider(widget.uid)).asData?.value ?? CaregiverRole.admin;
+    final canEdit = role.canEdit;
     final medsAsync = ref.watch(medicationsProvider(widget.uid));
     final meds = medsAsync.value ?? const <MedicationEntry>[];
     final selectedDayMeds = meds.where((medication) => medication.createdAt != null && DateUtils.isSameDay(medication.createdAt!, _selectedDay)).toList();
-    final lowStockMeds = meds.where((medication) => medication.hasLowStock).toList()
-      ..sort((a, b) => (a.currentStock ?? 9999).compareTo(b.currentStock ?? 9999));
-    final weekDays = _weekDays;
+    final calendarDays = _calendarDays;
 
     return Scaffold(
       appBar: AppBar(
@@ -806,40 +1019,45 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: weekDays.map((dayDate) {
-              final selected = DateUtils.isSameDay(dayDate, _selectedDay);
-              return GestureDetector(
-                onTap: () => setState(() => _selectedDay = _startOfDay(dayDate)),
-                child: Column(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: selected ? const Color(0xFF103A86) : Colors.transparent,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        '${dayDate.day}',
-                        style: TextStyle(
-                          color: selected ? Colors.white : const Color(0xFF103A86),
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: calendarDays.map((dayDate) {
+                final selected = DateUtils.isSameDay(dayDate, _selectedDay);
+                return GestureDetector(
+                  onTap: () => setState(() => _selectedDay = _startOfDay(dayDate)),
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: selected ? const Color(0xFF103A86) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '${dayDate.day}',
+                            style: TextStyle(
+                              color: selected ? Colors.white : const Color(0xFF103A86),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 3),
+                        Text(
+                          DateFormat('EEE').format(dayDate).toUpperCase(),
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: const Color(0xFF5E779B)),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      DateFormat('EEE').format(dayDate).toUpperCase(),
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(color: const Color(0xFF5E779B)),
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
+                  ),
+                );
+              }).toList(),
+            ),
           ),
           const SizedBox(height: 14),
           AppSectionCard(
@@ -868,33 +1086,73 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
                                   : const Color(0xFFF8FBFF),
                           borderRadius: BorderRadius.circular(18),
                         ),
-                        child: Row(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            CircleAvatar(
-                              backgroundColor: const Color(0xFF103A86),
-                              child: Text(
-                                medication.name.isNotEmpty ? medication.name[0].toUpperCase() : 'M',
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
-                              ),
+                            Row(
+                              children: [
+                                CircleAvatar(
+                                  backgroundColor: const Color(0xFF103A86),
+                                  child: Text(
+                                    medication.name.isNotEmpty ? medication.name[0].toUpperCase() : 'M',
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(medication.name, style: const TextStyle(fontWeight: FontWeight.w800)),
+                                      Text('${medication.dosage} • ${medication.timeLabel}'),
+                                      if (medication.notes.isNotEmpty) ...[
+                                        const SizedBox(height: 4),
+                                        Text(medication.notes),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                SoftChip(
+                                  label: medication.status,
+                                  color: _statusColor(medication.status).withValues(alpha: 0.16),
+                                  textColor: _statusColor(medication.status),
+                                ),
+                                IconButton(
+                                  onPressed: () => _openMedicationEditor(medication),
+                                  icon: const Icon(Icons.edit_rounded),
+                                  tooltip: 'Edit medication',
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(medication.name, style: const TextStyle(fontWeight: FontWeight.w800)),
-                                  Text('${medication.dosage} • ${medication.timeLabel}'),
-                                  if (medication.notes.isNotEmpty) ...[
-                                    const SizedBox(height: 4),
-                                    Text(medication.notes),
-                                  ],
-                                ],
-                              ),
-                            ),
-                            IconButton(
-                              onPressed: () => _openMedicationEditor(medication),
-                              icon: const Icon(Icons.edit_rounded),
-                              tooltip: 'Edit medication',
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: CareCrewPrimaryButton(
+                                    label: medication.status == 'taken' ? 'Mark as Not Taken' : 'Mark as Taken',
+                                    onPressed: !canEdit
+                                        ? null
+                                        : () async {
+                                            if (medication.status == 'taken') {
+                                              await ref.read(repositoryProvider).markMedicationNotTaken(
+                                                    uid: widget.uid,
+                                                    medication: medication,
+                                                  );
+                                            } else {
+                                              await ref.read(repositoryProvider).markMedicationTaken(
+                                                    uid: widget.uid,
+                                                    medication: medication,
+                                                  );
+                                            }
+                                            ref.invalidate(medicationsProvider(widget.uid));
+                                            ref.invalidate(activityLogsProvider(widget.uid));
+                                          },
+                                    leading: Icon(
+                                      medication.status == 'taken' ? Icons.undo_rounded : Icons.check_circle_rounded,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -904,136 +1162,10 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 14),
-          if (lowStockMeds.isNotEmpty) ...[
-            AppSectionCard(
-              child: Row(
-                children: [
-                  const Icon(Icons.medication_outlined, color: Color(0xFF103A86), size: 34),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Low Stock Alert: ${lowStockMeds.first.name}',
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${lowStockMeds.first.currentStock} unit(s) left • refill soon',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(999),
-                          child: LinearProgressIndicator(
-                            value: ((lowStockMeds.first.currentStock ?? 0) / 20).clamp(0.0, 1.0),
-                            minHeight: 6,
-                            backgroundColor: const Color(0xFFE5E5E5),
-                            valueColor: const AlwaysStoppedAnimation(Color(0xFFE5C84D)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-          ],
-          if (selectedDayMeds.isEmpty)
-            const EmptyStateCard(
-              title: 'No medications for this day',
-              subtitle: 'Switch the date or add a medicine entry for the selected day.',
-              icon: Icons.medication_liquid_outlined,
-            )
-          else
-            ...selectedDayMeds.map(
-              (medication) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: AppSectionCard(
-                  backgroundColor: medication.status == 'missed'
-                      ? const Color(0xFFFCE7E8)
-                      : medication.status == 'taken'
-                          ? const Color(0xFFE6F7E9)
-                          : Colors.white,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 22,
-                            backgroundColor: const Color(0xFF103A86),
-                            child: Text(
-                              medication.name.isNotEmpty ? medication.name[0].toUpperCase() : 'M',
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(medication.name, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
-                                Text(medication.dosage),
-                              ],
-                            ),
-                          ),
-                          SoftChip(
-                            label: medication.status,
-                            color: _statusColor(medication.status).withValues(alpha: 0.16),
-                            textColor: _statusColor(medication.status),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text('Time • ${medication.timeLabel}'),
-                      if (medication.currentStock != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          'Current stock • ${medication.currentStock}',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                      if (medication.notes.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(medication.notes),
-                      ],
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: CareCrewPrimaryButton(
-                              label: 'Mark as Taken',
-                              onPressed: medication.canBeMarkedTaken
-                                  ? () async {
-                                      await ref.read(repositoryProvider).markMedicationTaken(uid: widget.uid, medication: medication);
-                                      ref.invalidate(medicationsProvider(widget.uid));
-                                      ref.invalidate(activityLogsProvider(widget.uid));
-                                    }
-                                  : null,
-                              leading: const Icon(Icons.check_circle_rounded),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          IconButton.filled(
-                            onPressed: () => _openMedicationEditor(medication),
-                            icon: const Icon(Icons.edit_rounded),
-                            style: IconButton.styleFrom(backgroundColor: const Color(0xFFE8EEF8), foregroundColor: const Color(0xFF103A86)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           AppSectionCard(
             child: InkWell(
-              onTap: () => setState(() => _showAddMedicationForm = !_showAddMedicationForm),
+              onTap: canEdit ? () => setState(() => _showAddMedicationForm = !_showAddMedicationForm) : null,
               borderRadius: BorderRadius.circular(18),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
@@ -1054,6 +1186,7 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
               ),
             ),
           ),
+          const SizedBox(height: 14),
           if (_showAddMedicationForm) ...[
             const SizedBox(height: 12),
             AppSectionCard(
@@ -1089,16 +1222,67 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
                       },
                     ),
                     const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: CareCrewTextField(
+                            controller: _medStartDateDisplayController,
+                            label: 'Start Date',
+                            hintText: 'Pick start date',
+                            readOnly: true,
+                            onTap: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: _medStartDate,
+                                firstDate: DateTime.now().subtract(const Duration(days: 3650)),
+                                lastDate: DateTime.now().add(const Duration(days: 3650)),
+                              );
+                              if (picked != null) {
+                                setState(() {
+                                  _medStartDate = _startOfDay(picked);
+                                  _medStartDateDisplayController.text = DateFormat('MMM d, yyyy').format(_medStartDate);
+                                });
+                              }
+                            },
+                            suffixIcon: IconButton(
+                              onPressed: () async {
+                                final picked = await showDatePicker(
+                                  context: context,
+                                  initialDate: _medStartDate,
+                                  firstDate: DateTime.now().subtract(const Duration(days: 3650)),
+                                  lastDate: DateTime.now().add(const Duration(days: 3650)),
+                                );
+                                if (picked != null) {
+                                  setState(() {
+                                    _medStartDate = _startOfDay(picked);
+                                    _medStartDateDisplayController.text = DateFormat('MMM d, yyyy').format(_medStartDate);
+                                  });
+                                }
+                              },
+                              icon: const Icon(Icons.calendar_month_rounded),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: CareCrewTextField(
+                            controller: _numDaysController,
+                            label: 'Number of Days',
+                            hintText: 'e.g. 7',
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
                     CareCrewTextField(
                       controller: _timeDisplayController,
                       label: 'Time',
                       hintText: 'Choose time',
                       readOnly: true,
                       onTap: _pickTime,
-                      suffixIcon: IconButton(
-                        onPressed: _pickTime,
-                        icon: const Icon(Icons.schedule_rounded),
-                      ),
+                      suffixIcon: IconButton(onPressed: _pickTime, icon: const Icon(Icons.schedule_rounded)),
+                      validator: (_) => _timeOfDay == null ? 'Pick a medication time' : null,
                     ),
                     const SizedBox(height: 14),
                     CareCrewTextField(
@@ -1107,10 +1291,10 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
                       hintText: 'With food, before bedtime, etc.',
                       maxLines: 3,
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
                     CareCrewPrimaryButton(
                       label: _saving ? 'Saving...' : 'Save Medication',
-                      onPressed: _saving ? null : _saveMedication,
+                      onPressed: _saving || !canEdit ? null : _saveMedication,
                       leading: const Icon(Icons.add_circle_outline_rounded),
                     ),
                   ],
@@ -1118,9 +1302,9 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
               ),
             ),
           ],
-        ],
-      ),
-    );
+          ],
+        ),
+      );
   }
 }
 
@@ -1378,6 +1562,8 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final role = ref.watch(careRoleProvider(widget.uid)).asData?.value ?? CaregiverRole.admin;
+    final canEdit = role.canEdit;
     final vitalsAsync = ref.watch(vitalsProvider(widget.uid));
     final thresholdsAsync = ref.watch(thresholdsProvider(widget.uid));
     final latestVitals = vitalsAsync.value ?? const <VitalEntry>[];
@@ -1615,7 +1801,7 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                                   max: 10,
                                   divisions: 10,
                                   label: _painLevel.toString(),
-                                  onChanged: (value) => setState(() => _painLevel = value.round()),
+                                  onChanged: canEdit ? (value) => setState(() => _painLevel = value.round()) : null,
                                 ),
                                 Align(
                                   alignment: Alignment.centerRight,
@@ -1654,7 +1840,7 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                             ),
                             const SizedBox(width: 8),
                             TextButton.icon(
-                              onPressed: _pickPhoto,
+                              onPressed: canEdit ? _pickPhoto : null,
                               icon: const Icon(Icons.upload_rounded),
                               label: const Text('Upload'),
                             ),
@@ -1664,7 +1850,7 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                       const SizedBox(height: 16),
                       CareCrewPrimaryButton(
                         label: _saving ? 'Saving...' : 'Save Entry',
-                        onPressed: _saving ? null : _saveVitals,
+                        onPressed: _saving || !canEdit ? null : _saveVitals,
                         leading: const Icon(Icons.save_rounded),
                       ),
                     ],
@@ -1779,7 +1965,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final logs = ref.watch(activityLogsProvider(widget.uid)).value ?? const <ActivityLogEntry>[];
+    final role = ref.watch(careRoleProvider(widget.uid)).asData?.value ?? CaregiverRole.admin;
+    final canEdit = role.canEdit;
+    final authUser = ref.watch(authStateProvider).value;
+    final logs = ref.watch(activityLogsProvider(authUser?.uid ?? widget.uid)).value ?? const <ActivityLogEntry>[];
     final meds = ref.watch(medicationsProvider(widget.uid)).value ?? const <MedicationEntry>[];
     final appointments = ref.watch(appointmentsProvider(widget.uid)).value ?? const <AppointmentEntry>[];
     final vitals = ref.watch(vitalsProvider(widget.uid)).value ?? const <VitalEntry>[];
@@ -1832,7 +2021,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         title: const Text('History'),
         actions: [
           IconButton(
-            onPressed: _clearHistory,
+            onPressed: canEdit ? _clearHistory : null,
             icon: const Icon(Icons.delete_sweep_rounded),
             tooltip: 'Clear History',
           ),
@@ -2311,6 +2500,8 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final role = ref.watch(careRoleProvider(widget.uid)).asData?.value ?? CaregiverRole.admin;
+    final canEdit = role.canEdit;
     final caregivers = ref.watch(caregiversProvider(widget.uid)).value ?? const <CaregiverEntry>[];
     final logs = ref.watch(activityLogsProvider(widget.uid)).value ?? const <ActivityLogEntry>[];
     ActivityLogEntry? latestCareNote;
@@ -2368,7 +2559,7 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton.icon(
-                    onPressed: _openAddNoteDialog,
+                    onPressed: canEdit ? _openAddNoteDialog : null,
                     icon: const Icon(Icons.note_add_rounded),
                     label: const Text('Add Note'),
                   ),
@@ -2421,7 +2612,7 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
                           ],
                         ),
                       ),
-                      if (caregiver.canEdit)
+                      if (canEdit && caregiver.canEdit)
                         IconButton(
                           onPressed: () async {
                             await ref.read(repositoryProvider).deleteCaregiver(uid: widget.uid, caregiverId: caregiver.id);
@@ -2442,9 +2633,11 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
             ),
           const SizedBox(height: 24),
           FilledButton.icon(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => AddCaregiverScreen(uid: widget.uid)),
-            ),
+            onPressed: canEdit
+                ? () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => AddCaregiverScreen(uid: widget.uid)),
+                    )
+                : null,
             icon: const Icon(Icons.add_rounded),
             label: const Text('Invite to Circle'),
             style: FilledButton.styleFrom(
@@ -2487,12 +2680,6 @@ class _AddCaregiverScreenState extends ConsumerState<AddCaregiverScreen> {
     super.dispose();
   }
 
-  bool _isValidEmail(String value) {
-    final email = value.trim();
-    final regex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-    return regex.hasMatch(email);
-  }
-
   String _generateInviteCode() {
     final random = DateTime.now().millisecondsSinceEpoch.toString();
     return random.substring(random.length - 6);
@@ -2505,8 +2692,19 @@ class _AddCaregiverScreenState extends ConsumerState<AddCaregiverScreen> {
     }
 
     final inviteEmail = _emailController.text.trim().toLowerCase();
-    if (!_isValidEmail(inviteEmail)) {
+    final emailError = InputValidators.email(inviteEmail);
+    if (emailError != null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid email address.')));
+      return;
+    }
+
+    final mobileError = InputValidators.phone(
+      _mobileController.text,
+      required: false,
+      fieldLabel: 'mobile number',
+    );
+    if (mobileError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(mobileError)));
       return;
     }
 
@@ -2519,7 +2717,7 @@ class _AddCaregiverScreenState extends ConsumerState<AddCaregiverScreen> {
               id: '',
               name: _nameController.text.trim(),
               contact: inviteEmail,
-              mobile: _mobileController.text.trim(),
+              mobile: InputValidators.normalizePhone(_mobileController.text),
               role: _role.name,
               relationship: _relationshipController.text.trim(),
               inviteStatus: 'pending',
@@ -3240,6 +3438,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final role = ref.watch(careRoleProvider(widget.uid)).asData?.value ?? CaregiverRole.viewer;
+    final canEditThresholds = role.canEditThresholds;
     final thresholds = ref.watch(thresholdsProvider(widget.uid)).value;
     if (thresholds != null && !_tempController.text.isNotEmpty && !_systolicController.text.isNotEmpty && !_diastolicController.text.isNotEmpty && !_painController.text.isNotEmpty) {
       _tempController.text = thresholds.temperatureHigh?.toString() ?? '';
@@ -3260,26 +3460,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 const SectionHeader(title: 'Vitals Thresholds'),
                 const SizedBox(height: 6),
                 Text('Leave a field empty if the alert should not use that threshold.', style: Theme.of(context).textTheme.bodyMedium),
+                if (!canEditThresholds) ...[
+                  const SizedBox(height: 10),
+                  const SoftChip(label: 'View only'),
+                ],
                 const SizedBox(height: 14),
                 Row(
                   children: [
-                    Expanded(child: CareCrewTextField(controller: _tempController, label: 'Temp High', hintText: '101.0', keyboardType: const TextInputType.numberWithOptions(decimal: true))),
+                    Expanded(child: CareCrewTextField(controller: _tempController, label: 'Temp High', hintText: '101.0', keyboardType: const TextInputType.numberWithOptions(decimal: true), readOnly: !canEditThresholds)),
                     const SizedBox(width: 12),
-                    Expanded(child: CareCrewTextField(controller: _systolicController, label: 'Systolic High', hintText: '140', keyboardType: TextInputType.number)),
+                    Expanded(child: CareCrewTextField(controller: _systolicController, label: 'Systolic High', hintText: '140', keyboardType: TextInputType.number, readOnly: !canEditThresholds)),
                   ],
                 ),
                 const SizedBox(height: 14),
                 Row(
                   children: [
-                    Expanded(child: CareCrewTextField(controller: _diastolicController, label: 'Diastolic High', hintText: '90', keyboardType: TextInputType.number)),
+                    Expanded(child: CareCrewTextField(controller: _diastolicController, label: 'Diastolic High', hintText: '90', keyboardType: TextInputType.number, readOnly: !canEditThresholds)),
                     const SizedBox(width: 12),
-                    Expanded(child: CareCrewTextField(controller: _painController, label: 'Pain High', hintText: '7', keyboardType: TextInputType.number)),
+                    Expanded(child: CareCrewTextField(controller: _painController, label: 'Pain High', hintText: '7', keyboardType: TextInputType.number, readOnly: !canEditThresholds)),
                   ],
                 ),
                 const SizedBox(height: 16),
                 CareCrewPrimaryButton(
                   label: _saving ? 'Saving...' : 'Save Thresholds',
-                  onPressed: _saving
+                  onPressed: _saving || !canEditThresholds
                       ? null
                       : () async {
                           setState(() => _saving = true);
@@ -3296,6 +3500,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   ),
                                 );
                             ref.invalidate(thresholdsProvider(widget.uid));
+                            if (mounted) {
+                              messenger.showSnackBar(
+                                const SnackBar(content: Text('Thresholds saved successfully.')),
+                              );
+                            }
                           } catch (error) {
                             if (mounted) messenger.showSnackBar(SnackBar(content: Text(error.toString())));
                           } finally {
@@ -3377,9 +3586,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             label: 'Logout',
             onPressed: () async {
               await ref.read(repositoryProvider).signOut();
-              if (context.mounted) {
-                Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const AuthScreen()), (route) => false);
-              }
+              if (!context.mounted) return;
+              Navigator.of(context).popUntil((route) => route.isFirst);
             },
             leading: const Icon(Icons.logout_rounded),
             backgroundColor: const Color(0xFF8A1120),
@@ -3451,7 +3659,7 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
       await ref.read(repositoryProvider).updateUserProfile(
             uid: widget.uid,
             displayName: _nameController.text.trim(),
-            mobileNumber: _mobileController.text.trim(),
+            mobileNumber: InputValidators.normalizePhone(_mobileController.text),
           );
       if (!mounted) return;
       ref.invalidate(currentUserProfileProvider(widget.uid));
@@ -3472,6 +3680,16 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
     }
     setState(() => _savingPatient = true);
     try {
+      final existingPatient = await ref
+          .read(repositoryProvider)
+          .firestore
+          .collection('users')
+          .doc(widget.uid)
+          .collection('patient')
+          .doc('main')
+          .get();
+      final hadPatientProfile = existingPatient.exists;
+
       await ref.read(repositoryProvider).savePatientProfile(
             uid: widget.uid,
             profile: PatientProfile(
@@ -3480,12 +3698,17 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
               age: int.parse(_patientAgeController.text.trim()),
               dischargeDate: _patientDischargeDate!,
               condition: _patientConditionController.text.trim(),
-              emergencyContact: _patientEmergencyContactController.text.trim(),
+              emergencyContact: InputValidators.normalizePhone(_patientEmergencyContactController.text),
             ),
           );
       if (!mounted) return;
       ref.invalidate(patientProfileProvider(widget.uid));
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Patient details updated.')));
+      if (!hadPatientProfile) {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => AddCaregiverScreen(uid: widget.uid)),
+        );
+      }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
@@ -3545,6 +3768,7 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
                     label: 'Mobile Number',
                     hintText: 'Enter mobile number',
                     keyboardType: TextInputType.phone,
+                    validator: (value) => InputValidators.phone(value, required: false, fieldLabel: 'mobile number'),
                   ),
                   const SizedBox(height: 12),
                   CareCrewPrimaryButton(
@@ -3618,7 +3842,7 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
                     label: 'Emergency Contact Number',
                     hintText: 'Enter emergency contact',
                     keyboardType: TextInputType.phone,
-                    validator: (value) => value == null || value.trim().isEmpty ? 'Emergency contact is required' : null,
+                    validator: (value) => InputValidators.phone(value, fieldLabel: 'emergency contact number'),
                   ),
                   const SizedBox(height: 12),
                   CareCrewPrimaryButton(
