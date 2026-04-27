@@ -11,11 +11,9 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 class CareCrewRepository {
-  CareCrewRepository({
-    FirebaseAuth? auth,
-    FirebaseFirestore? firestore,
-  })  : _auth = auth ?? FirebaseAuth.instance,
-        _firestore = firestore ?? FirebaseFirestore.instance;
+  CareCrewRepository({FirebaseAuth? auth, FirebaseFirestore? firestore})
+    : _auth = auth ?? FirebaseAuth.instance,
+      _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
@@ -27,6 +25,26 @@ class CareCrewRepository {
   supabase.SupabaseClient get _supabase => supabase.Supabase.instance.client;
   dynamic get _storage => _supabase.storage.from(_bucketName);
 
+  Future<T> _runStorageOperation<T>(
+    Future<T> Function() operation, {
+    required String action,
+  }) async {
+    try {
+      return await operation();
+    } catch (error) {
+      final message = error.toString();
+      if (message.contains('Failed host lookup') ||
+          message.contains('SocketException') ||
+          message.contains('ClientException') ||
+          message.contains('Connection timed out')) {
+        throw StateError(
+          '$action failed because the device could not reach Supabase. Check your internet connection, private DNS/VPN, and Supabase URL.',
+        );
+      }
+      rethrow;
+    }
+  }
+
   Stream<User?> authStateChanges() => _auth.authStateChanges();
 
   User? get currentUser => _auth.currentUser;
@@ -34,8 +52,10 @@ class CareCrewRepository {
   DocumentReference<Map<String, dynamic>> _userDoc(String uid) =>
       _firestore.collection('users').doc(uid);
 
-  CollectionReference<Map<String, dynamic>> _subCollection(String uid, String name) =>
-      _userDoc(uid).collection(name);
+  CollectionReference<Map<String, dynamic>> _subCollection(
+    String uid,
+    String name,
+  ) => _userDoc(uid).collection(name);
 
   DocumentReference<Map<String, dynamic>> _patientDoc(String uid) =>
       _subCollection(uid, 'patient').doc('main');
@@ -83,19 +103,16 @@ class CareCrewRepository {
     final mobile = firebaseUser.phoneNumber ?? '';
     final email = firebaseUser.email ?? '';
     try {
-      await _userDoc(firebaseUser.uid).set(
-        {
-          'uid': firebaseUser.uid,
-          'displayName': displayName.isEmpty ? 'Caregiver' : displayName,
-          'email': email,
-          'mobileNumber': mobile,
-          'careRole': 'admin',
-          'lastSeenAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-          'createdAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+      await _userDoc(firebaseUser.uid).set({
+        'uid': firebaseUser.uid,
+        'displayName': displayName.isEmpty ? 'Caregiver' : displayName,
+        'email': email,
+        'mobileNumber': mobile,
+        'careRole': 'admin',
+        'lastSeenAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
     } catch (_) {
       // Auth should still succeed even if Firestore is temporarily unavailable.
     }
@@ -116,18 +133,15 @@ class CareCrewRepository {
     final user = _auth.currentUser;
     if (user != null) {
       try {
-        await _userDoc(user.uid).set(
-          {
-            'uid': user.uid,
-            'displayName': name,
-            'email': email,
-            'mobileNumber': mobileNumber,
-            'careRole': 'admin',
-            'createdAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
+        await _userDoc(user.uid).set({
+          'uid': user.uid,
+          'displayName': name,
+          'email': email,
+          'mobileNumber': mobileNumber,
+          'careRole': 'admin',
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
       } catch (_) {
         // Keep the new auth user signed in even if Firestore is not ready yet.
       }
@@ -174,7 +188,8 @@ class CareCrewRepository {
     await _auth.signOut();
   }
 
-  Future<void> sendPasswordReset(String email) => _auth.sendPasswordResetEmail(email: email);
+  Future<void> sendPasswordReset(String email) =>
+      _auth.sendPasswordResetEmail(email: email);
 
   Stream<AppUserProfile?> watchUserProfile(String uid) {
     return _userDoc(uid).snapshots().map((snapshot) {
@@ -189,14 +204,11 @@ class CareCrewRepository {
     required String displayName,
     required String mobileNumber,
   }) async {
-    await _userDoc(uid).set(
-      {
-        'displayName': displayName,
-        'mobileNumber': mobileNumber,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await _userDoc(uid).set({
+      'displayName': displayName,
+      'mobileNumber': mobileNumber,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     if (displayName.isNotEmpty) {
       await _auth.currentUser?.updateDisplayName(displayName);
     }
@@ -215,13 +227,12 @@ class CareCrewRepository {
     required PatientProfile profile,
   }) async {
     try {
-      await _patientDoc(uid).set(
-        profile.toMap(),
-        SetOptions(merge: true),
-      );
+      await _patientDoc(uid).set(profile.toMap(), SetOptions(merge: true));
     } on FirebaseException catch (error) {
       if (error.code == 'permission-denied') {
-        throw StateError('Permission denied while saving patient profile. Check Firestore rules for users/$uid/patient/main.');
+        throw StateError(
+          'Permission denied while saving patient profile. Check Firestore rules for users/$uid/patient/main.',
+        );
       }
       rethrow;
     }
@@ -246,9 +257,14 @@ class CareCrewRepository {
   }
 
   Stream<List<CaregiverEntry>> watchCaregivers(String uid) {
-    return _subCollection(uid, 'caregivers').orderBy('createdAt', descending: true).snapshots().map(
-      (snapshot) => snapshot.docs.map((doc) => CaregiverEntry.fromMap(doc.id, doc.data())).toList(),
-    );
+    return _subCollection(uid, 'caregivers')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => CaregiverEntry.fromMap(doc.id, doc.data()))
+              .toList(),
+        );
   }
 
   Future<void> saveCaregiver({
@@ -256,10 +272,7 @@ class CareCrewRepository {
     required CaregiverEntry caregiver,
   }) async {
     final ref = _subCollection(uid, 'caregivers').doc();
-    await ref.set({
-      ...caregiver.toMap(),
-      'id': ref.id,
-    });
+    await ref.set({...caregiver.toMap(), 'id': ref.id});
     await addActivityLog(
       uid: uid,
       type: 'caregiver_added',
@@ -269,7 +282,10 @@ class CareCrewRepository {
     );
   }
 
-  Future<void> deleteCaregiver({required String uid, required String caregiverId}) async {
+  Future<void> deleteCaregiver({
+    required String uid,
+    required String caregiverId,
+  }) async {
     await _subCollection(uid, 'caregivers').doc(caregiverId).delete();
     await addActivityLog(
       uid: uid,
@@ -282,7 +298,9 @@ class CareCrewRepository {
 
   Stream<List<MedicationEntry>> watchMedications(String uid) {
     return _subCollection(uid, 'medications').snapshots().map((snapshot) {
-      final meds = snapshot.docs.map((doc) => MedicationEntry.fromMap(doc.id, doc.data())).toList();
+      final meds = snapshot.docs
+          .map((doc) => MedicationEntry.fromMap(doc.id, doc.data()))
+          .toList();
       meds.sort((a, b) {
         final hourCompare = a.scheduledHour.compareTo(b.scheduledHour);
         if (hourCompare != 0) return hourCompare;
@@ -297,10 +315,7 @@ class CareCrewRepository {
     required MedicationEntry medication,
   }) async {
     final ref = _subCollection(uid, 'medications').doc();
-    await ref.set({
-      ...medication.toMap(),
-      'id': ref.id,
-    });
+    await ref.set({...medication.toMap(), 'id': ref.id});
     await addActivityLog(
       uid: uid,
       type: 'medication_added',
@@ -339,15 +354,13 @@ class CareCrewRepository {
     final nextStock = medication.currentStock == null
         ? null
         : (medication.currentStock! > 0 ? medication.currentStock! - 1 : 0);
-    await _subCollection(uid, 'medications').doc(medication.id).update(
-      {
-        'status': 'taken',
-        'lastTakenAt': Timestamp.fromDate(now),
-        'lastTakenDateKey': todayKey,
-        if (nextStock != null) 'currentStock': nextStock,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-    );
+    await _subCollection(uid, 'medications').doc(medication.id).update({
+      'status': 'taken',
+      'lastTakenAt': Timestamp.fromDate(now),
+      'lastTakenDateKey': todayKey,
+      'currentStock': ?nextStock,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
     await addActivityLog(
       uid: uid,
       type: 'medication_taken',
@@ -366,41 +379,46 @@ class CareCrewRepository {
 
     for (final doc in snapshot.docs) {
       final medication = MedicationEntry.fromMap(doc.id, doc.data());
-      final scheduledMinutes = medication.scheduledHour * 60 + medication.scheduledMinute;
+      final scheduledMinutes =
+          medication.scheduledHour * 60 + medication.scheduledMinute;
       final isPastDue = currentMinutes >= scheduledMinutes;
       final alreadyLoggedMissed = medication.lastMissedDateKey == todayKey;
       final alreadyTakenToday = medication.lastTakenDateKey == todayKey;
       if (isPastDue && !alreadyTakenToday && !alreadyLoggedMissed) {
-        await doc.reference.update(
-          {
-            'status': 'missed',
-            'lastMissedDateKey': todayKey,
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-        );
+        await doc.reference.update({
+          'status': 'missed',
+          'lastMissedDateKey': todayKey,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
         await addActivityLog(
           uid: uid,
           type: 'medication_missed',
           title: 'Medication missed',
-          details: '${medication.name} was due at ${medication.timeLabel} and has not been marked taken.',
+          details:
+              '${medication.name} was due at ${medication.timeLabel} and has not been marked taken.',
           actor: 'System',
           meta: {'medicationId': medication.id},
         );
-      } else if (!isPastDue && medication.status == 'missed' && medication.lastMissedDateKey != todayKey) {
-        await doc.reference.update(
-          {
-            'status': 'pending',
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-        );
+      } else if (!isPastDue &&
+          medication.status == 'missed' &&
+          medication.lastMissedDateKey != todayKey) {
+        await doc.reference.update({
+          'status': 'pending',
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
       }
     }
   }
 
   Stream<List<VitalEntry>> watchVitals(String uid) {
-    return _subCollection(uid, 'vitals').orderBy('createdAt', descending: true).snapshots().map(
-      (snapshot) => snapshot.docs.map((doc) => VitalEntry.fromMap(doc.id, doc.data())).toList(),
-    );
+    return _subCollection(uid, 'vitals')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => VitalEntry.fromMap(doc.id, doc.data()))
+              .toList(),
+        );
   }
 
   Stream<ThresholdConfig?> watchThresholds(String uid) {
@@ -430,18 +448,25 @@ class CareCrewRepository {
     required VitalEntry entry,
   }) async {
     final thresholdsSnapshot = await _thresholdDoc(uid).get();
-    final thresholds = thresholdsSnapshot.exists && thresholdsSnapshot.data() != null
-        ? ThresholdConfig.fromMap(thresholdsSnapshot.id, thresholdsSnapshot.data()!)
+    final thresholds =
+        thresholdsSnapshot.exists && thresholdsSnapshot.data() != null
+        ? ThresholdConfig.fromMap(
+            thresholdsSnapshot.id,
+            thresholdsSnapshot.data()!,
+          )
         : ThresholdConfig(id: 'default');
 
     final alertReasons = <String>[];
-    if (thresholds.temperatureHigh != null && entry.temperature > thresholds.temperatureHigh!) {
+    if (thresholds.temperatureHigh != null &&
+        entry.temperature > thresholds.temperatureHigh!) {
       alertReasons.add('Fever detected');
     }
-    if (thresholds.systolicHigh != null && entry.systolic > thresholds.systolicHigh!) {
+    if (thresholds.systolicHigh != null &&
+        entry.systolic > thresholds.systolicHigh!) {
       alertReasons.add('High blood pressure');
     }
-    if (thresholds.diastolicHigh != null && entry.diastolic > thresholds.diastolicHigh!) {
+    if (thresholds.diastolicHigh != null &&
+        entry.diastolic > thresholds.diastolicHigh!) {
       alertReasons.add('Diastolic above threshold');
     }
     if (thresholds.painHigh != null && entry.painLevel > thresholds.painHigh!) {
@@ -470,12 +495,10 @@ class CareCrewRepository {
       uid: uid,
       type: alertReasons.isEmpty ? 'vitals_logged' : 'critical_alert',
       title: alertReasons.isEmpty ? 'Vitals logged' : alertReasons.first,
-      details: 'Temperature ${entry.temperature.toStringAsFixed(1)}°F, BP ${entry.systolic}/${entry.diastolic}, pain ${entry.painLevel}.',
+      details:
+          'Temperature ${entry.temperature.toStringAsFixed(1)}°F, BP ${entry.systolic}/${entry.diastolic}, pain ${entry.painLevel}.',
       actor: 'Caregiver',
-      meta: {
-        'vitalId': ref.id,
-        'alertReasons': alertReasons,
-      },
+      meta: {'vitalId': ref.id, 'alertReasons': alertReasons},
     );
     if (alertReasons.isNotEmpty) {
       await NotificationService.instance.showAbnormalVitalsAlert(alertReasons);
@@ -488,18 +511,25 @@ class CareCrewRepository {
     required VitalEntry entry,
   }) async {
     final thresholdsSnapshot = await _thresholdDoc(uid).get();
-    final thresholds = thresholdsSnapshot.exists && thresholdsSnapshot.data() != null
-        ? ThresholdConfig.fromMap(thresholdsSnapshot.id, thresholdsSnapshot.data()!)
+    final thresholds =
+        thresholdsSnapshot.exists && thresholdsSnapshot.data() != null
+        ? ThresholdConfig.fromMap(
+            thresholdsSnapshot.id,
+            thresholdsSnapshot.data()!,
+          )
         : ThresholdConfig(id: 'default');
 
     final alertReasons = <String>[];
-    if (thresholds.temperatureHigh != null && entry.temperature > thresholds.temperatureHigh!) {
+    if (thresholds.temperatureHigh != null &&
+        entry.temperature > thresholds.temperatureHigh!) {
       alertReasons.add('Fever detected');
     }
-    if (thresholds.systolicHigh != null && entry.systolic > thresholds.systolicHigh!) {
+    if (thresholds.systolicHigh != null &&
+        entry.systolic > thresholds.systolicHigh!) {
       alertReasons.add('High blood pressure');
     }
-    if (thresholds.diastolicHigh != null && entry.diastolic > thresholds.diastolicHigh!) {
+    if (thresholds.diastolicHigh != null &&
+        entry.diastolic > thresholds.diastolicHigh!) {
       alertReasons.add('Diastolic above threshold');
     }
     if (thresholds.painHigh != null && entry.painLevel > thresholds.painHigh!) {
@@ -528,12 +558,10 @@ class CareCrewRepository {
       uid: uid,
       type: 'vitals_updated',
       title: 'Vitals updated',
-      details: 'Temperature ${entry.temperature.toStringAsFixed(1)}°F, BP ${entry.systolic}/${entry.diastolic}, pain ${entry.painLevel}.',
+      details:
+          'Temperature ${entry.temperature.toStringAsFixed(1)}°F, BP ${entry.systolic}/${entry.diastolic}, pain ${entry.painLevel}.',
       actor: 'Caregiver',
-      meta: {
-        'vitalId': entry.id,
-        'alertReasons': alertReasons,
-      },
+      meta: {'vitalId': entry.id, 'alertReasons': alertReasons},
     );
     if (alertReasons.isNotEmpty) {
       await NotificationService.instance.showAbnormalVitalsAlert(alertReasons);
@@ -542,9 +570,14 @@ class CareCrewRepository {
   }
 
   Stream<List<AppointmentEntry>> watchAppointments(String uid) {
-    return _subCollection(uid, 'appointments').orderBy('appointmentDateTime').snapshots().map(
-      (snapshot) => snapshot.docs.map((doc) => AppointmentEntry.fromMap(doc.id, doc.data())).toList(),
-    );
+    return _subCollection(uid, 'appointments')
+        .orderBy('appointmentDateTime')
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => AppointmentEntry.fromMap(doc.id, doc.data()))
+              .toList(),
+        );
   }
 
   Future<void> saveAppointment({
@@ -553,13 +586,12 @@ class CareCrewRepository {
   }) async {
     final ref = _subCollection(uid, 'appointments').doc();
     try {
-      await ref.set({
-        ...appointment.toMap(),
-        'id': ref.id,
-      });
+      await ref.set({...appointment.toMap(), 'id': ref.id});
     } on FirebaseException catch (error) {
       if (error.code == 'permission-denied') {
-        throw StateError('Permission denied while saving appointment. Check Firestore rules for users/$uid/appointments.');
+        throw StateError(
+          'Permission denied while saving appointment. Check Firestore rules for users/$uid/appointments.',
+        );
       }
       rethrow;
     }
@@ -567,7 +599,8 @@ class CareCrewRepository {
       uid: uid,
       type: 'appointment_added',
       title: 'Appointment added',
-      details: 'Appointment with ${appointment.doctorName} scheduled for ${_shortDate(appointment.appointmentDateTime)}.',
+      details:
+          'Appointment with ${appointment.doctorName} scheduled for ${_shortDate(appointment.appointmentDateTime)}.',
       actor: 'System',
       meta: {'appointmentId': ref.id},
     );
@@ -578,12 +611,10 @@ class CareCrewRepository {
     required String appointmentId,
     required AppointmentStatus status,
   }) async {
-    await _subCollection(uid, 'appointments').doc(appointmentId).update(
-      {
-        'status': status.name,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-    );
+    await _subCollection(uid, 'appointments').doc(appointmentId).update({
+      'status': status.name,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
     await addActivityLog(
       uid: uid,
       type: 'appointment_status_changed',
@@ -595,9 +626,14 @@ class CareCrewRepository {
   }
 
   Stream<List<ActivityLogEntry>> watchActivityLogs(String uid) {
-    return _subCollection(uid, 'activity_logs').orderBy('createdAt', descending: true).snapshots().map(
-      (snapshot) => snapshot.docs.map((doc) => ActivityLogEntry.fromMap(doc.id, doc.data())).toList(),
-    );
+    return _subCollection(uid, 'activity_logs')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => ActivityLogEntry.fromMap(doc.id, doc.data()))
+              .toList(),
+        );
   }
 
   Future<void> addActivityLog({
@@ -639,9 +675,14 @@ class CareCrewRepository {
   }
 
   Stream<List<DocumentEntry>> watchDocuments(String uid) {
-    return _subCollection(uid, 'documents').orderBy('createdAt', descending: true).snapshots().map(
-      (snapshot) => snapshot.docs.map((doc) => DocumentEntry.fromMap(doc.id, doc.data())).toList(),
-    );
+    return _subCollection(uid, 'documents')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => DocumentEntry.fromMap(doc.id, doc.data()))
+              .toList(),
+        );
   }
 
   Future<DocumentEntry> uploadDocument({
@@ -651,11 +692,17 @@ class CareCrewRepository {
     final bytes = await _readBytes(file);
 
     final cleanName = file.name.replaceAll(' ', '_');
-    final storagePath = 'users/$uid/documents/${DateTime.now().millisecondsSinceEpoch}_$cleanName';
-    await _storage.uploadBinary(
-      storagePath,
-      bytes,
-      fileOptions: supabase.FileOptions(contentType: _contentTypeForExtension(file.extension)),
+    final storagePath =
+        'users/$uid/documents/${DateTime.now().millisecondsSinceEpoch}_$cleanName';
+    await _runStorageOperation(
+      () => _storage.uploadBinary(
+        storagePath,
+        bytes,
+        fileOptions: supabase.FileOptions(
+          contentType: _contentTypeForExtension(file.extension),
+        ),
+      ),
+      action: 'Document upload',
     );
     final downloadUrl = _storage.getPublicUrl(storagePath);
     final docRef = _subCollection(uid, 'documents').doc();
@@ -669,10 +716,7 @@ class CareCrewRepository {
       addedBy: _auth.currentUser?.displayName ?? 'Caregiver',
       createdAt: DateTime.now(),
     );
-    await docRef.set({
-      ...entry.toMap(),
-      'id': docRef.id,
-    });
+    await docRef.set({...entry.toMap(), 'id': docRef.id});
     await addActivityLog(
       uid: uid,
       type: 'document_uploaded',
@@ -690,11 +734,17 @@ class CareCrewRepository {
   }) async {
     final bytes = await _readBytes(file);
     final cleanName = file.name.replaceAll(' ', '_');
-    final storagePath = 'users/$uid/vitals/${DateTime.now().millisecondsSinceEpoch}_$cleanName';
-    await _storage.uploadBinary(
-      storagePath,
-      bytes,
-      fileOptions: supabase.FileOptions(contentType: _contentTypeForExtension(file.extension) ?? 'image/*'),
+    final storagePath =
+        'users/$uid/vitals/${DateTime.now().millisecondsSinceEpoch}_$cleanName';
+    await _runStorageOperation(
+      () => _storage.uploadBinary(
+        storagePath,
+        bytes,
+        fileOptions: supabase.FileOptions(
+          contentType: _contentTypeForExtension(file.extension) ?? 'image/*',
+        ),
+      ),
+      action: 'Vital photo upload',
     );
     return {
       'storagePath': storagePath,
@@ -706,7 +756,10 @@ class CareCrewRepository {
     required String uid,
     required DocumentEntry document,
   }) async {
-    await _storage.remove([document.storagePath]);
+    await _runStorageOperation(
+      () => _storage.remove([document.storagePath]),
+      action: 'Document delete',
+    );
     await _subCollection(uid, 'documents').doc(document.id).delete();
     await addActivityLog(
       uid: uid,
@@ -733,7 +786,10 @@ class CareCrewRepository {
     if (email == null || email.isEmpty) return user.uid;
 
     try {
-      final snapshot = await _firestore.collectionGroup('caregivers').where('contact', isEqualTo: email).get();
+      final snapshot = await _firestore
+          .collectionGroup('caregivers')
+          .where('contact', isEqualTo: email)
+          .get();
       if (snapshot.docs.isEmpty) return user.uid;
 
       String? ownerUid;
@@ -742,16 +798,14 @@ class CareCrewRepository {
         if (ownerRef == null) continue;
         ownerUid ??= ownerRef.id;
 
-        final status = (doc.data()['inviteStatus'] as String? ?? 'pending').toLowerCase();
+        final status = (doc.data()['inviteStatus'] as String? ?? 'pending')
+            .toLowerCase();
         if (status != 'accepted') {
-          await doc.reference.set(
-            {
-              'inviteStatus': 'accepted',
-              'acceptedAt': FieldValue.serverTimestamp(),
-              'updatedAt': FieldValue.serverTimestamp(),
-            },
-            SetOptions(merge: true),
-          );
+          await doc.reference.set({
+            'inviteStatus': 'accepted',
+            'acceptedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
         }
       }
 
@@ -771,23 +825,51 @@ class CareCrewRepository {
 
   int appointmentAttendancePercent(List<AppointmentEntry> appointments) {
     if (appointments.isEmpty) return 0;
-    final completed = appointments.where((entry) => entry.statusValue == AppointmentStatus.completed).length;
+    final completed = appointments
+        .where((entry) => entry.statusValue == AppointmentStatus.completed)
+        .length;
     return ((completed / appointments.length) * 100).round();
   }
 
-  List<ActivityLogEntry> logsForRange(List<ActivityLogEntry> logs, DateTime startInclusive) {
-    return logs.where((log) => log.createdAt != null && !log.createdAt!.isBefore(startInclusive)).toList();
+  List<ActivityLogEntry> logsForRange(
+    List<ActivityLogEntry> logs,
+    DateTime startInclusive,
+  ) {
+    return logs
+        .where(
+          (log) =>
+              log.createdAt != null && !log.createdAt!.isBefore(startInclusive),
+        )
+        .toList();
   }
 
-  List<VitalEntry> vitalsForRange(List<VitalEntry> vitals, DateTime startInclusive) {
-    return vitals.where((entry) => entry.createdAt != null && !entry.createdAt!.isBefore(startInclusive)).toList();
+  List<VitalEntry> vitalsForRange(
+    List<VitalEntry> vitals,
+    DateTime startInclusive,
+  ) {
+    return vitals
+        .where(
+          (entry) =>
+              entry.createdAt != null &&
+              !entry.createdAt!.isBefore(startInclusive),
+        )
+        .toList();
   }
 
-  DateTime startOfToday() => DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+  DateTime startOfToday() =>
+      DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
 
-  DateTime sevenDaysAgo() => DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day).subtract(const Duration(days: 6));
+  DateTime sevenDaysAgo() => DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    DateTime.now().day,
+  ).subtract(const Duration(days: 6));
 
-  DateTime thirtyDaysAgo() => DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day).subtract(const Duration(days: 29));
+  DateTime thirtyDaysAgo() => DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    DateTime.now().day,
+  ).subtract(const Duration(days: 29));
 
   /// Mark a caregiver invitation as accepted after password creation
   Future<void> acceptCaregiverInvite({
@@ -817,4 +899,3 @@ class CareCrewRepository {
     }
   }
 }
-

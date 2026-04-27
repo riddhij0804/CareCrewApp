@@ -1,7 +1,1 @@
-{
-  "functions": {
-    "source": "functions",
-    "codebase": "default",
-    "runtime": "nodejs20"
-  }
-}
+{"functions":{"source":"functions","codebase":"default","runtime":"nodejs20"},"flutter":{"platforms":{"android":{"default":{"projectId":"madlab-77d86","appId":"1:145045453389:android:c4148f27c3dc7c86ecfa04","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"madlab-77d86","configurations":{"android":"1:145045453389:android:c4148f27c3dc7c86ecfa04","web":"1:145045453389:web:d0835ed9b5be190becfa04"}}}}}}

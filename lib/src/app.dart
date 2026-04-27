@@ -45,7 +45,9 @@ class _CareCrewAppState extends State<CareCrewApp> {
   void _handleDeepLink(Uri uri) {
     // Parse carecrew://accept-invite/{code}?email={email}&uid={ownerUid}
     if (uri.scheme == 'carecrew' && uri.host == 'accept-invite') {
-      final code = uri.pathSegments.isNotEmpty ? uri.pathSegments.join('/') : '';
+      final code = uri.pathSegments.isNotEmpty
+          ? uri.pathSegments.join('/')
+          : '';
       final email = uri.queryParameters['email'] ?? '';
       final ownerUid = uri.queryParameters['uid'] ?? '';
 
@@ -60,7 +62,9 @@ class _CareCrewAppState extends State<CareCrewApp> {
   @override
   Widget build(BuildContext context) {
     // If there's a pending invite, show the accept screen
-    if (_inviteCode != null && _inviteEmail != null && _inviteOwnerUid != null) {
+    if (_inviteCode != null &&
+        _inviteEmail != null &&
+        _inviteOwnerUid != null) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'CareCrew',
@@ -78,7 +82,9 @@ class _CareCrewAppState extends State<CareCrewApp> {
       debugShowCheckedModeBanner: false,
       title: 'CareCrew',
       theme: AppTheme.light,
-      home: widget.firebaseInitError == null ? const AuthGate() : FirebaseSetupScreen(error: widget.firebaseInitError!),
+      home: widget.firebaseInitError == null
+          ? const AuthGate()
+          : FirebaseSetupScreen(error: widget.firebaseInitError!),
     );
   }
 }
@@ -143,16 +149,23 @@ class FirebaseSetupScreen extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.cloud_off_rounded, size: 48, color: Color(0xFF103A86)),
+                      const Icon(
+                        Icons.cloud_off_rounded,
+                        size: 48,
+                        color: Color(0xFF103A86),
+                      ),
                       const SizedBox(height: 16),
-                      Text('Firebase needs configuration', style: Theme.of(context).textTheme.headlineSmall),
+                      Text(
+                        'Firebase needs configuration',
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
                       const SizedBox(height: 12),
                       Text(
                         'The app could not initialize Firebase with the current configuration.\n\n$error',
                       ),
                       const SizedBox(height: 16),
                       const Text(
-                        'Run FlutterFire configure after creating your Firebase project, then replace lib/src/firebase_options.dart with the generated file.',
+                        'If you need a different Firebase project, update the Android app registration and replace the Firebase values in lib/src/firebase_options.dart or pass them with --dart-define-from-file.',
                       ),
                     ],
                   ),
@@ -171,11 +184,7 @@ class _LoadingGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: CircularProgressIndicator(),
-      ),
-    );
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }
 

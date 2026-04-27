@@ -18,6 +18,7 @@ String _longDate(DateTime value) => DateFormat('EEE, MMM d, yyyy').format(value)
 String _shortTime(DateTime value) => DateFormat('h:mm a').format(value);
 DateTime _startOfDay(DateTime value) => DateTime(value.year, value.month, value.day);
 String _dayKey(DateTime value) => DateFormat('yyyy-MM-dd').format(value.toLocal());
+
 String _relativeTime(DateTime value) {
   final diff = DateTime.now().difference(value);
   if (diff.inMinutes < 1) return 'just now';
@@ -845,63 +846,65 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
           AppSectionCard(
             borderColor: const Color(0xFFDDE9F6),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SectionHeader(
-                  title: 'Added on ${DateFormat('MMM d').format(_selectedDay)}',
-                  action: const SoftChip(label: 'Calendar linked'),
-                ),
-                const SizedBox(height: 10),
-                if (selectedDayMeds.isEmpty)
-                  const Text('No medications were added on this day.')
-                else
-                  ...selectedDayMeds.map(
-                    (medication) => Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: medication.status == 'missed'
-                              ? const Color(0xFFFCE7E8)
-                              : medication.status == 'taken'
-                                  ? const Color(0xFFE6F7E9)
-                                  : const Color(0xFFF8FBFF),
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              backgroundColor: const Color(0xFF103A86),
-                              child: Text(
-                                medication.name.isNotEmpty ? medication.name[0].toUpperCase() : 'M',
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SectionHeader(
+                    title: 'Added on ${DateFormat('MMM d').format(_selectedDay)}',
+                    action: const SoftChip(label: 'Calendar linked'),
+                  ),
+                  const SizedBox(height: 10),
+                  if (selectedDayMeds.isEmpty)
+                    const Text('No medications were added on this day.')
+                  else
+                    ...selectedDayMeds.map(
+                      (medication) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: medication.status == 'missed'
+                                ? const Color(0xFFFCE7E8)
+                                : medication.status == 'taken'
+                                    ? const Color(0xFFE6F7E9)
+                                    : const Color(0xFFF8FBFF),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: const Color(0xFF103A86),
+                                child: Text(
+                                  medication.name.isNotEmpty ? medication.name[0].toUpperCase() : 'M',
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(medication.name, style: const TextStyle(fontWeight: FontWeight.w800)),
-                                  Text('${medication.dosage} • ${medication.timeLabel}'),
-                                  if (medication.notes.isNotEmpty) ...[
-                                    const SizedBox(height: 4),
-                                    Text(medication.notes),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(medication.name, style: const TextStyle(fontWeight: FontWeight.w800)),
+                                    Text('${medication.dosage} • ${medication.timeLabel}'),
+                                    if (medication.notes.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(medication.notes),
+                                    ],
                                   ],
-                                ],
+                                ),
                               ),
-                            ),
-                            IconButton(
-                              onPressed: () => _openMedicationEditor(medication),
-                              icon: const Icon(Icons.edit_rounded),
-                              tooltip: 'Edit medication',
-                            ),
-                          ],
+                              IconButton(
+                                onPressed: () => _openMedicationEditor(medication),
+                                icon: const Icon(Icons.edit_rounded),
+                                tooltip: 'Edit medication',
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 14),
@@ -1146,7 +1149,9 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
   bool _saving = false;
 
   List<DateTime> get _weekDays {
-    final startOfWeek = _selectedDay.subtract(Duration(days: _selectedDay.weekday - 1));
+    final startOfWeek = _selectedDay.subtract(
+      Duration(days: _selectedDay.weekday - 1),
+    );
     return List.generate(7, (index) => startOfWeek.add(Duration(days: index)));
   }
 
@@ -1161,7 +1166,11 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
   }
 
   Future<void> _pickPhoto() async {
-    final result = await FilePicker.pickFiles(type: FileType.image, allowMultiple: false, withData: true);
+    final result = await FilePicker.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+      withData: true,
+    );
     if (result != null && result.files.isNotEmpty) {
       setState(() => _pickedPhoto = result.files.single);
     }
@@ -1184,9 +1193,15 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
 
   Future<void> _openVitalEditor(VitalEntry entry) async {
     final formKey = GlobalKey<FormState>();
-    final temperatureController = TextEditingController(text: entry.temperature.toStringAsFixed(1));
-    final systolicController = TextEditingController(text: entry.systolic.toString());
-    final diastolicController = TextEditingController(text: entry.diastolic.toString());
+    final temperatureController = TextEditingController(
+      text: entry.temperature.toStringAsFixed(1),
+    );
+    final systolicController = TextEditingController(
+      text: entry.systolic.toString(),
+    );
+    final diastolicController = TextEditingController(
+      text: entry.diastolic.toString(),
+    );
     final notesController = TextEditingController(text: entry.notes);
     var painLevel = entry.painLevel;
     var saving = false;
@@ -1201,11 +1216,15 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                 if (!formKey.currentState!.validate()) return;
                 setDialogState(() => saving = true);
                 try {
-                  await ref.read(repositoryProvider).updateVitalEntry(
+                  await ref
+                      .read(repositoryProvider)
+                      .updateVitalEntry(
                         uid: widget.uid,
                         entry: VitalEntry(
                           id: entry.id,
-                          temperature: double.parse(temperatureController.text.trim()),
+                          temperature: double.parse(
+                            temperatureController.text.trim(),
+                          ),
                           systolic: int.parse(systolicController.text.trim()),
                           diastolic: int.parse(diastolicController.text.trim()),
                           painLevel: painLevel,
@@ -1220,7 +1239,9 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                   if (dialogContext.mounted) Navigator.of(dialogContext).pop();
                 } catch (error) {
                   if (dialogContext.mounted) {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text(error.toString())));
+                    ScaffoldMessenger.of(
+                      dialogContext,
+                    ).showSnackBar(SnackBar(content: Text(error.toString())));
                   }
                 } finally {
                   if (dialogContext.mounted) {
@@ -1241,8 +1262,14 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                           controller: temperatureController,
                           label: 'Temperature (°F)',
                           hintText: '98.6',
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          validator: (value) => value == null || double.tryParse(value.trim()) == null ? 'Enter a valid temperature' : null,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          validator: (value) =>
+                              value == null ||
+                                  double.tryParse(value.trim()) == null
+                              ? 'Enter a valid temperature'
+                              : null,
                         ),
                         const SizedBox(height: 14),
                         Row(
@@ -1253,7 +1280,11 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                                 label: 'Systolic',
                                 hintText: '120',
                                 keyboardType: TextInputType.number,
-                                validator: (value) => value == null || int.tryParse(value.trim()) == null ? 'Enter systolic' : null,
+                                validator: (value) =>
+                                    value == null ||
+                                        int.tryParse(value.trim()) == null
+                                    ? 'Enter systolic'
+                                    : null,
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -1263,7 +1294,11 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                                 label: 'Diastolic',
                                 hintText: '80',
                                 keyboardType: TextInputType.number,
-                                validator: (value) => value == null || int.tryParse(value.trim()) == null ? 'Enter diastolic' : null,
+                                validator: (value) =>
+                                    value == null ||
+                                        int.tryParse(value.trim()) == null
+                                    ? 'Enter diastolic'
+                                    : null,
                               ),
                             ),
                           ],
@@ -1272,7 +1307,11 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Pain Level', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+                            Text(
+                              'Pain Level',
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w800),
+                            ),
                             const SizedBox(height: 8),
                             Slider(
                               value: painLevel.toDouble(),
@@ -1280,11 +1319,18 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                               max: 10,
                               divisions: 10,
                               label: painLevel.toString(),
-                              onChanged: (value) => setDialogState(() => painLevel = value.round()),
+                              onChanged: (value) => setDialogState(
+                                () => painLevel = value.round(),
+                              ),
                             ),
                             Align(
                               alignment: Alignment.centerRight,
-                              child: Text('$painLevel / 10', style: const TextStyle(fontWeight: FontWeight.w800)),
+                              child: Text(
+                                '$painLevel / 10',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -1301,7 +1347,9 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: saving ? null : () => Navigator.of(dialogContext).pop(),
+                    onPressed: saving
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(),
                     child: const Text('Cancel'),
                   ),
                   FilledButton(
@@ -1331,15 +1379,16 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
     try {
       final now = DateTime.now();
       if (_pickedPhoto != null) {
-        final uploaded = await ref.read(repositoryProvider).uploadVitalPhoto(
-              uid: widget.uid,
-              file: _pickedPhoto!,
-            );
+        final uploaded = await ref
+            .read(repositoryProvider)
+            .uploadVitalPhoto(uid: widget.uid, file: _pickedPhoto!);
         photoPath = uploaded['storagePath'];
         photoUrl = uploaded['downloadUrl'];
       }
 
-      await ref.read(repositoryProvider).saveVitalEntry(
+      await ref
+          .read(repositoryProvider)
+          .saveVitalEntry(
             uid: widget.uid,
             entry: VitalEntry(
               id: '',
@@ -1350,7 +1399,14 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
               notes: _notesController.text.trim(),
               photoUrl: photoUrl,
               photoPath: photoPath,
-              createdAt: DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day, now.hour, now.minute, now.second),
+              createdAt: DateTime(
+                _selectedDay.year,
+                _selectedDay.month,
+                _selectedDay.day,
+                now.hour,
+                now.minute,
+                now.second,
+              ),
             ),
           );
       _temperatureController.clear();
@@ -1364,7 +1420,10 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
       ref.invalidate(vitalsProvider(widget.uid));
       ref.invalidate(activityLogsProvider(widget.uid));
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1382,8 +1441,16 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
     final thresholdsAsync = ref.watch(thresholdsProvider(widget.uid));
     final latestVitals = vitalsAsync.value ?? const <VitalEntry>[];
     final thresholds = thresholdsAsync.value;
-    final selectedVitals = latestVitals.where((vital) => vital.createdAt != null && DateUtils.isSameDay(vital.createdAt!, _selectedDay)).toList();
-    final selectedLatest = selectedVitals.isNotEmpty ? selectedVitals.first : null;
+    final selectedVitals = latestVitals
+        .where(
+          (vital) =>
+              vital.createdAt != null &&
+              DateUtils.isSameDay(vital.createdAt!, _selectedDay),
+        )
+        .toList();
+    final selectedLatest = selectedVitals.isNotEmpty
+        ? selectedVitals.first
+        : null;
     final weekDays = _weekDays;
 
     return Scaffold(
@@ -1395,7 +1462,12 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
             child: CircleAvatar(
               radius: 18,
               backgroundColor: Colors.white,
-              child: Text('C', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900)),
+              child: Text(
+                'C',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+              ),
             ),
           ),
         ],
@@ -1405,7 +1477,9 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
         children: [
           Text(
             DateFormat('EEEE, MMM d, yyyy').format(_selectedDay),
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 6),
           Row(
@@ -1413,7 +1487,9 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
               Expanded(
                 child: Text(
                   'Showing entries added on ${DateFormat('MMM d, yyyy').format(_selectedDay)}',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: const Color(0xFF5E779B)),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: const Color(0xFF5E779B),
+                  ),
                 ),
               ),
               IconButton(
@@ -1429,21 +1505,26 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
             children: weekDays.map((dayDate) {
               final selected = DateUtils.isSameDay(dayDate, _selectedDay);
               return GestureDetector(
-                onTap: () => setState(() => _selectedDay = _startOfDay(dayDate)),
+                onTap: () =>
+                    setState(() => _selectedDay = _startOfDay(dayDate)),
                 child: Column(
                   children: [
                     Container(
                       width: 42,
                       height: 42,
                       decoration: BoxDecoration(
-                        color: selected ? const Color(0xFF103A86) : Colors.transparent,
+                        color: selected
+                            ? const Color(0xFF103A86)
+                            : Colors.transparent,
                         borderRadius: BorderRadius.circular(14),
                       ),
                       alignment: Alignment.center,
                       child: Text(
                         '${dayDate.day}',
                         style: TextStyle(
-                          color: selected ? Colors.white : const Color(0xFF103A86),
+                          color: selected
+                              ? Colors.white
+                              : const Color(0xFF103A86),
                           fontWeight: FontWeight.w800,
                           fontSize: 14,
                         ),
@@ -1452,7 +1533,9 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                     const SizedBox(height: 3),
                     Text(
                       DateFormat('EEE').format(dayDate).toUpperCase(),
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(color: const Color(0xFF5E779B)),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: const Color(0xFF5E779B),
+                      ),
                     ),
                   ],
                 ),
@@ -1466,7 +1549,8 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SectionHeader(
-                  title: 'Vitals added on ${DateFormat('MMM d').format(_selectedDay)}',
+                  title:
+                      'Vitals added on ${DateFormat('MMM d').format(_selectedDay)}',
                   action: const SoftChip(label: 'Calendar linked'),
                 ),
                 const SizedBox(height: 10),
@@ -1477,26 +1561,49 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                     (entry) => Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: AppSectionCard(
-                        borderColor: entry.hasAlert ? const Color(0xFFB01E24) : const Color(0xFFDDE9F6),
+                        borderColor: entry.hasAlert
+                            ? const Color(0xFFB01E24)
+                            : const Color(0xFFDDE9F6),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
                               children: [
                                 CircleAvatar(
-                                  backgroundColor: entry.hasAlert ? const Color(0xFFF7D2D4) : const Color(0xFFE6F7E9),
-                                  child: Icon(entry.hasAlert ? Icons.priority_high_rounded : Icons.favorite_rounded, color: entry.hasAlert ? const Color(0xFF8A1120) : const Color(0xFF1E7E3E)),
+                                  backgroundColor: entry.hasAlert
+                                      ? const Color(0xFFF7D2D4)
+                                      : const Color(0xFFE6F7E9),
+                                  child: Icon(
+                                    entry.hasAlert
+                                        ? Icons.priority_high_rounded
+                                        : Icons.favorite_rounded,
+                                    color: entry.hasAlert
+                                        ? const Color(0xFF8A1120)
+                                        : const Color(0xFF1E7E3E),
+                                  ),
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        entry.hasAlert ? (entry.alertLabel ?? 'Alert') : 'Vitals logged',
-                                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                                        entry.hasAlert
+                                            ? (entry.alertLabel ?? 'Alert')
+                                            : 'Vitals logged',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w900,
+                                            ),
                                       ),
-                                      Text(_relativeTime(entry.createdAt ?? DateTime.now())),
+                                      Text(
+                                        _relativeTime(
+                                          entry.createdAt ?? DateTime.now(),
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -1508,8 +1615,12 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                               ],
                             ),
                             const SizedBox(height: 10),
-                            Text('Temperature: ${entry.temperature.toStringAsFixed(1)}°F'),
-                            Text('Blood Pressure: ${entry.systolic}/${entry.diastolic} mmHg'),
+                            Text(
+                              'Temperature: ${entry.temperature.toStringAsFixed(1)}°F',
+                            ),
+                            Text(
+                              'Blood Pressure: ${entry.systolic}/${entry.diastolic} mmHg',
+                            ),
                             Text('Pain Level: ${entry.painLevel}/10'),
                             if (entry.notes.isNotEmpty) ...[
                               const SizedBox(height: 6),
@@ -1519,7 +1630,12 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                               const SizedBox(height: 10),
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(18),
-                                child: Image.network(entry.photoUrl!, height: 160, width: double.infinity, fit: BoxFit.cover),
+                                child: Image.network(
+                                  entry.photoUrl!,
+                                  height: 160,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                ),
                               ),
                             ],
                           ],
@@ -1533,22 +1649,41 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
           const SizedBox(height: 14),
           if (selectedLatest != null)
             AppSectionCard(
-              borderColor: selectedLatest.hasAlert ? const Color(0xFFB01E24) : const Color(0xFFDDE9F6),
+              borderColor: selectedLatest.hasAlert
+                  ? const Color(0xFFB01E24)
+                  : const Color(0xFFDDE9F6),
               child: Row(
                 children: [
                   CircleAvatar(
                     radius: 22,
-                    backgroundColor: selectedLatest.hasAlert ? const Color(0xFFF7D2D4) : const Color(0xFFE6F7E9),
-                    child: Icon(selectedLatest.hasAlert ? Icons.warning_amber_rounded : Icons.verified_rounded, color: selectedLatest.hasAlert ? const Color(0xFF8A1120) : const Color(0xFF1E7E3E)),
+                    backgroundColor: selectedLatest.hasAlert
+                        ? const Color(0xFFF7D2D4)
+                        : const Color(0xFFE6F7E9),
+                    child: Icon(
+                      selectedLatest.hasAlert
+                          ? Icons.warning_amber_rounded
+                          : Icons.verified_rounded,
+                      color: selectedLatest.hasAlert
+                          ? const Color(0xFF8A1120)
+                          : const Color(0xFF1E7E3E),
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(selectedLatest.hasAlert ? selectedLatest.alertLabel ?? 'Alert' : 'Vitals within range', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+                        Text(
+                          selectedLatest.hasAlert
+                              ? selectedLatest.alertLabel ?? 'Alert'
+                              : 'Vitals within range',
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
                         const SizedBox(height: 4),
-                        Text('Logged ${_relativeTime(selectedLatest.createdAt ?? DateTime.now())}'),
+                        Text(
+                          'Logged ${_relativeTime(selectedLatest.createdAt ?? DateTime.now())}',
+                        ),
                       ],
                     ),
                   ),
@@ -1557,11 +1692,18 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
             ),
           const SizedBox(height: 16),
           AppSectionCard(
-            borderColor: thresholds == null || !thresholds.hasAnyThreshold ? const Color(0xFFDDE9F6) : const Color(0xFF103A86),
+            borderColor: thresholds == null || !thresholds.hasAnyThreshold
+                ? const Color(0xFFDDE9F6)
+                : const Color(0xFF103A86),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SectionHeader(title: 'Record Vitals', action: thresholds == null || !thresholds.hasAnyThreshold ? const SoftChip(label: 'No thresholds set') : const SoftChip(label: 'Thresholds active')),
+                SectionHeader(
+                  title: 'Record Vitals',
+                  action: thresholds == null || !thresholds.hasAnyThreshold
+                      ? const SoftChip(label: 'No thresholds set')
+                      : const SoftChip(label: 'Thresholds active'),
+                ),
                 const SizedBox(height: 14),
                 Form(
                   key: _formKey,
@@ -1574,8 +1716,15 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                               controller: _temperatureController,
                               label: 'Temperature (°F)',
                               hintText: '98.6',
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              validator: (value) => value == null || double.tryParse(value.trim()) == null ? 'Enter a valid temperature' : null,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              validator: (value) =>
+                                  value == null ||
+                                      double.tryParse(value.trim()) == null
+                                  ? 'Enter a valid temperature'
+                                  : null,
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1585,7 +1734,11 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                               label: 'Systolic',
                               hintText: '120',
                               keyboardType: TextInputType.number,
-                              validator: (value) => value == null || int.tryParse(value.trim()) == null ? 'Enter systolic' : null,
+                              validator: (value) =>
+                                  value == null ||
+                                      int.tryParse(value.trim()) == null
+                                  ? 'Enter systolic'
+                                  : null,
                             ),
                           ),
                         ],
@@ -1599,7 +1752,11 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                               label: 'Diastolic',
                               hintText: '80',
                               keyboardType: TextInputType.number,
-                              validator: (value) => value == null || int.tryParse(value.trim()) == null ? 'Enter diastolic' : null,
+                              validator: (value) =>
+                                  value == null ||
+                                      int.tryParse(value.trim()) == null
+                                  ? 'Enter diastolic'
+                                  : null,
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1607,7 +1764,11 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Pain Level', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+                                Text(
+                                  'Pain Level',
+                                  style: Theme.of(context).textTheme.titleSmall
+                                      ?.copyWith(fontWeight: FontWeight.w800),
+                                ),
                                 const SizedBox(height: 8),
                                 Slider(
                                   value: _painLevel.toDouble(),
@@ -1615,11 +1776,18 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                                   max: 10,
                                   divisions: 10,
                                   label: _painLevel.toString(),
-                                  onChanged: (value) => setState(() => _painLevel = value.round()),
+                                  onChanged: (value) => setState(
+                                    () => _painLevel = value.round(),
+                                  ),
                                 ),
                                 Align(
                                   alignment: Alignment.centerRight,
-                                  child: Text('$_painLevel / 10', style: const TextStyle(fontWeight: FontWeight.w800)),
+                                  child: Text(
+                                    '$_painLevel / 10',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
@@ -1639,16 +1807,33 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
                         child: Row(
                           children: [
                             CircleAvatar(
-                              backgroundColor: const Color(0xFF103A86).withValues(alpha: 0.12),
-                              child: const Icon(Icons.photo_camera_outlined, color: Color(0xFF103A86)),
+                              backgroundColor: const Color(
+                                0xFF103A86,
+                              ).withValues(alpha: 0.12),
+                              child: const Icon(
+                                Icons.photo_camera_outlined,
+                                color: Color(0xFF103A86),
+                              ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(_pickedPhoto?.name ?? 'Optional photo', style: const TextStyle(fontWeight: FontWeight.w800)),
-                                  Text(_pickedPhoto == null ? 'Tap to upload a photo of wounds, rashes or visible symptoms' : 'Selected photo will be stored in Firebase Storage', style: Theme.of(context).textTheme.bodySmall),
+                                  Text(
+                                    _pickedPhoto?.name ?? 'Optional photo',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  Text(
+                                    _pickedPhoto == null
+                                        ? 'Tap to upload a photo of wounds, rashes or visible symptoms'
+                                        : 'Selected photo will be stored in Firebase Storage',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
                                 ],
                               ),
                             ),
@@ -1677,59 +1862,93 @@ class _VitalsScreenState extends ConsumerState<VitalsScreen> {
           if (latestVitals.isEmpty)
             const EmptyStateCard(
               title: 'No vitals logged yet',
-              subtitle: 'Add the first reading so alerts and trends can update in real time.',
+              subtitle:
+                  'Add the first reading so alerts and trends can update in real time.',
               icon: Icons.monitor_heart_rounded,
             )
           else
-            ...latestVitals.take(5).map(
-              (entry) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: AppSectionCard(
-                  borderColor: entry.hasAlert ? const Color(0xFFB01E24) : const Color(0xFFDDE9F6),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+            ...latestVitals
+                .take(5)
+                .map(
+                  (entry) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: AppSectionCard(
+                      borderColor: entry.hasAlert
+                          ? const Color(0xFFB01E24)
+                          : const Color(0xFFDDE9F6),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          CircleAvatar(
-                            backgroundColor: entry.hasAlert ? const Color(0xFFF7D2D4) : const Color(0xFFE6F7E9),
-                            child: Icon(entry.hasAlert ? Icons.priority_high_rounded : Icons.favorite_rounded, color: entry.hasAlert ? const Color(0xFF8A1120) : const Color(0xFF1E7E3E)),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  entry.hasAlert ? (entry.alertLabel ?? 'Alert') : 'Vitals logged',
-                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: entry.hasAlert
+                                    ? const Color(0xFFF7D2D4)
+                                    : const Color(0xFFE6F7E9),
+                                child: Icon(
+                                  entry.hasAlert
+                                      ? Icons.priority_high_rounded
+                                      : Icons.favorite_rounded,
+                                  color: entry.hasAlert
+                                      ? const Color(0xFF8A1120)
+                                      : const Color(0xFF1E7E3E),
                                 ),
-                                Text(_relativeTime(entry.createdAt ?? DateTime.now())),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      entry.hasAlert
+                                          ? (entry.alertLabel ?? 'Alert')
+                                          : 'Vitals logged',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                    ),
+                                    Text(
+                                      _relativeTime(
+                                        entry.createdAt ?? DateTime.now(),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Temperature: ${entry.temperature.toStringAsFixed(1)}°F',
+                          ),
+                          Text(
+                            'Blood Pressure: ${entry.systolic}/${entry.diastolic} mmHg',
+                          ),
+                          Text('Pain Level: ${entry.painLevel}/10'),
+                          if (entry.notes.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(entry.notes),
+                          ],
+                          if (entry.photoUrl != null) ...[
+                            const SizedBox(height: 10),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(18),
+                              child: Image.network(
+                                entry.photoUrl!,
+                                height: 160,
+                                width: double.infinity,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
-                      const SizedBox(height: 10),
-                      Text('Temperature: ${entry.temperature.toStringAsFixed(1)}°F'),
-                      Text('Blood Pressure: ${entry.systolic}/${entry.diastolic} mmHg'),
-                      Text('Pain Level: ${entry.painLevel}/10'),
-                      if (entry.notes.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Text(entry.notes),
-                      ],
-                      if (entry.photoUrl != null) ...[
-                        const SizedBox(height: 10),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
-                          child: Image.network(entry.photoUrl!, height: 160, width: double.infinity, fit: BoxFit.cover),
-                        ),
-                      ],
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            ),
         ],
       ),
     );
@@ -1747,16 +1966,183 @@ class HistoryScreen extends ConsumerStatefulWidget {
 
 class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   int _viewIndex = 0;
+  bool _isExportingReport = false;
+
+  Future<void> _exportDoctorReportPdf({
+    required String patientName,
+    required int adherence,
+    required int missedCount,
+    required String? mostMissedMedicationName,
+    required int mostMissedMedicationCount,
+    required List<AppointmentEntry> appointments,
+    required int attendance,
+    required List<ActivityLogEntry> alerts,
+    required List<MedicationEntry> medications,
+    required VitalEntry? latestRecentVital,
+    required String latestClinicalNote,
+  }) async {
+    if (_isExportingReport) return;
+    setState(() => _isExportingReport = true);
+
+    try {
+      final doc = pw.Document();
+      final generatedAt = DateTime.now();
+      final reportWindowStart = generatedAt.subtract(const Duration(days: 7));
+      final reportDateLabel = DateFormat('MMM d, yyyy').format(generatedAt);
+      final rangeLabel =
+          '${DateFormat('MMM d').format(reportWindowStart)} - ${DateFormat('MMM d, yyyy').format(generatedAt)}';
+
+      pw.Widget sectionTitle(String value) => pw.Padding(
+        padding: const pw.EdgeInsets.only(top: 14, bottom: 6),
+        child: pw.Text(
+          value,
+          style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
+        ),
+      );
+
+      pw.Widget bullet(String value) => pw.Padding(
+        padding: const pw.EdgeInsets.only(bottom: 4),
+        child: pw.Text('• $value', style: const pw.TextStyle(fontSize: 11)),
+      );
+
+      doc.addPage(
+        pw.MultiPage(
+          build: (context) => [
+            pw.Text(
+              'CareCrew Clinical Summary',
+              style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 4),
+            pw.Text('Patient: $patientName'),
+            pw.Text('Generated: $reportDateLabel'),
+            pw.Text('Window: Last 7 days ($rangeLabel)'),
+            sectionTitle('Medication Overview'),
+            bullet('Medication adherence: $adherence%'),
+            bullet('Missed doses (last 30 days): $missedCount'),
+            bullet(
+              mostMissedMedicationName == null || mostMissedMedicationCount == 0
+                  ? 'Most missed medication: None'
+                  : 'Most missed medication: $mostMissedMedicationName ($mostMissedMedicationCount time${mostMissedMedicationCount == 1 ? '' : 's'})',
+            ),
+            sectionTitle('Appointment Attendance'),
+            bullet('Attendance rate: $attendance%'),
+            bullet(
+              appointments.isEmpty
+                  ? 'No appointments recorded.'
+                  : 'Tracked appointments: ${appointments.length}',
+            ),
+            if (appointments.isNotEmpty)
+              ...appointments
+                  .take(5)
+                  .map(
+                    (appointment) => bullet(
+                      '${_shortDate(appointment.appointmentDateTime)} - ${appointment.doctorName} (${appointment.location}) [${appointment.statusValue.label}]',
+                    ),
+                  ),
+            sectionTitle('Critical Events'),
+            bullet(
+              alerts.isEmpty
+                  ? 'No critical alerts in the last 30 days.'
+                  : 'Critical alerts (last 30 days): ${alerts.length}',
+            ),
+            if (alerts.isNotEmpty)
+              ...alerts
+                  .take(5)
+                  .map(
+                    (alert) => bullet(
+                      '${_shortDate(alert.createdAt ?? generatedAt)} - ${alert.title}: ${alert.details}',
+                    ),
+                  ),
+            sectionTitle('Recent Medications'),
+            bullet(
+              medications.isEmpty
+                  ? 'No medications added.'
+                  : 'Active medications listed: ${medications.length}',
+            ),
+            if (medications.isNotEmpty)
+              ...medications
+                  .take(6)
+                  .map(
+                    (med) => bullet(
+                      '${med.name} (${med.dosage}) at ${med.timeLabel} - ${med.status.toUpperCase()}',
+                    ),
+                  ),
+            sectionTitle('Latest Vitals Snapshot'),
+            bullet(
+              latestRecentVital == null
+                  ? 'No vitals recorded in the last 7 days.'
+                  : 'Blood pressure: ${latestRecentVital.systolic}/${latestRecentVital.diastolic} mmHg',
+            ),
+            if (latestRecentVital != null)
+              bullet(
+                'Temperature: ${latestRecentVital.temperature.toStringAsFixed(1)}°F',
+              ),
+            sectionTitle('Latest Clinical Note'),
+            pw.Text(
+              latestClinicalNote,
+              style: const pw.TextStyle(fontSize: 11),
+            ),
+          ],
+        ),
+      );
+
+      final bytes = await doc.save();
+      final fileName =
+          'carecrew_report_${DateFormat('yyyyMMdd_HHmmss').format(generatedAt)}.pdf';
+
+      await Share.shareXFiles(
+        [XFile.fromData(bytes, mimeType: 'application/pdf', name: fileName)],
+        subject: 'CareCrew Clinical Summary',
+        text:
+            'Clinical summary for $patientName generated on $reportDateLabel.',
+      );
+
+      await ref
+          .read(repositoryProvider)
+          .addActivityLog(
+            uid: widget.uid,
+            type: 'report_exported',
+            title: 'Doctor report exported',
+            details: 'A PDF clinical summary was exported for $patientName.',
+            actor: 'System',
+          );
+      ref.invalidate(activityLogsProvider(widget.uid));
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Report PDF exported successfully.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to export report: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isExportingReport = false);
+      } else {
+        _isExportingReport = false;
+      }
+    }
+  }
 
   Future<void> _clearHistory() async {
     final shouldClear = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Clear history?'),
-        content: const Text('This will remove all activity feed entries for this care account.'),
+        content: const Text(
+          'This will remove all activity feed entries for this care account.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Clear')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Clear'),
+          ),
         ],
       ),
     );
@@ -1779,14 +2165,24 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final logs = ref.watch(activityLogsProvider(widget.uid)).value ?? const <ActivityLogEntry>[];
-    final meds = ref.watch(medicationsProvider(widget.uid)).value ?? const <MedicationEntry>[];
-    final appointments = ref.watch(appointmentsProvider(widget.uid)).value ?? const <AppointmentEntry>[];
-    final vitals = ref.watch(vitalsProvider(widget.uid)).value ?? const <VitalEntry>[];
+    final logs =
+        ref.watch(activityLogsProvider(widget.uid)).value ??
+        const <ActivityLogEntry>[];
+    final meds =
+        ref.watch(medicationsProvider(widget.uid)).value ??
+        const <MedicationEntry>[];
+    final appointments =
+        ref.watch(appointmentsProvider(widget.uid)).value ??
+        const <AppointmentEntry>[];
+    final vitals =
+        ref.watch(vitalsProvider(widget.uid)).value ?? const <VitalEntry>[];
     final patient = ref.watch(patientProfileProvider(widget.uid)).value;
     final repo = ref.read(repositoryProvider);
     final today = _startOfDay(DateTime.now());
-    final trendDays = List.generate(7, (index) => today.subtract(Duration(days: 6 - index)));
+    final trendDays = List.generate(
+      7,
+      (index) => today.subtract(Duration(days: 6 - index)),
+    );
 
     final thirtyDaysAgo = repo.thirtyDaysAgo();
     final sevenDaysAgo = repo.sevenDaysAgo();
@@ -1794,25 +2190,59 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final recentVitals = repo.vitalsForRange(vitals, sevenDaysAgo);
     final adherence = repo.medicationAdherencePercent(recentLogs);
     final attendance = repo.appointmentAttendancePercent(appointments);
-    final missedCount = recentLogs.where((log) => log.type == 'medication_missed').length;
-    final alerts = recentLogs.where((log) => log.type == 'critical_alert').toList();
+    final takenCount = recentLogs
+        .where((log) => log.type == 'medication_taken')
+        .length;
+    final missedCount = recentLogs
+        .where((log) => log.type == 'medication_missed')
+        .length;
+    final currentTakenCount = meds
+        .where((medication) => medication.status == 'taken')
+        .length;
+    final currentMissedCount = meds
+        .where((medication) => medication.status == 'missed')
+        .length;
+    final currentPendingCount = math.max(
+      meds.length - currentTakenCount - currentMissedCount,
+      0,
+    );
+    final completedAppointments = appointments
+        .where(
+          (appointment) =>
+              appointment.statusValue == AppointmentStatus.completed,
+        )
+        .length;
+    final vitalAlertCount = recentVitals.where((entry) => entry.hasAlert).length;
+    final alerts = recentLogs
+        .where((log) => log.type == 'critical_alert')
+        .toList();
     String? mostMissedMedicationName;
     var mostMissedMedicationCount = 0;
     for (final medication in meds) {
-      final missedForMedication = recentLogs.where((log) => log.type == 'medication_missed' && log.details.contains(medication.name)).length;
+      final missedForMedication = recentLogs
+          .where(
+            (log) =>
+                log.type == 'medication_missed' &&
+                log.details.contains(medication.name),
+          )
+          .length;
       if (missedForMedication > mostMissedMedicationCount) {
         mostMissedMedicationCount = missedForMedication;
         mostMissedMedicationName = medication.name;
       }
     }
-    final latestRecentVital = recentVitals.isNotEmpty ? recentVitals.first : null;
+    final latestRecentVital = recentVitals.isNotEmpty
+        ? recentVitals.first
+        : null;
     final vitalsByDay = <String, VitalEntry>{};
     for (final entry in recentVitals) {
       final createdAt = entry.createdAt;
       if (createdAt == null) continue;
       final key = _dayKey(createdAt);
       final existing = vitalsByDay[key];
-      if (existing == null || (existing.createdAt != null && createdAt.isAfter(existing.createdAt!))) {
+      if (existing == null ||
+          (existing.createdAt != null &&
+              createdAt.isAfter(existing.createdAt!))) {
         vitalsByDay[key] = entry;
       }
     }
@@ -1821,10 +2251,24 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     for (var index = 0; index < trendDays.length; index++) {
       final key = _dayKey(trendDays[index]);
       final entry = vitalsByDay[key];
-      final previousSystolic = systolicSpots.isNotEmpty ? systolicSpots.last.y : null;
-      final previousTemperature = temperatureSpots.isNotEmpty ? temperatureSpots.last.y : null;
-      systolicSpots.add(FlSpot(index.toDouble(), entry?.systolic.toDouble() ?? previousSystolic ?? 0));
-      temperatureSpots.add(FlSpot(index.toDouble(), entry?.temperature ?? previousTemperature ?? 0));
+      final previousSystolic = systolicSpots.isNotEmpty
+          ? systolicSpots.last.y
+          : null;
+      final previousTemperature = temperatureSpots.isNotEmpty
+          ? temperatureSpots.last.y
+          : null;
+      systolicSpots.add(
+        FlSpot(
+          index.toDouble(),
+          entry?.systolic.toDouble() ?? previousSystolic ?? 0,
+        ),
+      );
+      temperatureSpots.add(
+        FlSpot(
+          index.toDouble(),
+          entry?.temperature ?? previousTemperature ?? 0,
+        ),
+      );
     }
 
     return Scaffold(
@@ -1841,7 +2285,12 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             child: CircleAvatar(
               radius: 18,
               backgroundColor: Colors.white,
-              child: Text('C', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900)),
+              child: Text(
+                'C',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+              ),
             ),
           ),
         ],
@@ -1857,10 +2306,14 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             child: SegmentedButton<int>(
               style: ButtonStyle(
                 backgroundColor: WidgetStateProperty.resolveWith(
-                  (states) => states.contains(WidgetState.selected) ? const Color(0xFF103A86) : Colors.transparent,
+                  (states) => states.contains(WidgetState.selected)
+                      ? const Color(0xFF103A86)
+                      : Colors.transparent,
                 ),
                 foregroundColor: WidgetStateProperty.resolveWith(
-                  (states) => states.contains(WidgetState.selected) ? Colors.white : Colors.black,
+                  (states) => states.contains(WidgetState.selected)
+                      ? Colors.white
+                      : Colors.black,
                 ),
               ),
               showSelectedIcon: false,
@@ -1869,7 +2322,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 ButtonSegment(value: 1, label: Text('Doctor\'s View')),
               ],
               selected: {_viewIndex},
-              onSelectionChanged: (selection) => setState(() => _viewIndex = selection.first),
+              onSelectionChanged: (selection) =>
+                  setState(() => _viewIndex = selection.first),
             ),
           ),
           const SizedBox(height: 18),
@@ -1882,9 +2336,22 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   const SizedBox(height: 14),
                   Row(
                     children: [
-                      StatCard(label: 'Medication Adherence', value: '$adherence%', subtitle: 'Last 30 days', color: const Color(0xFFF9F2C8), icon: Icons.check_circle_rounded),
+                      StatCard(
+                        label: 'Medication Adherence',
+                        value: '$adherence%',
+                        subtitle: 'Last 30 days',
+                        color: const Color(0xFFF9F2C8),
+                        icon: Icons.check_circle_rounded,
+                      ),
                       const SizedBox(width: 12),
-                      StatCard(label: 'Appointments Kept', value: '${appointments.where((a) => a.statusValue == AppointmentStatus.completed).length}', subtitle: '${appointments.length} tracked', color: const Color(0xFFDDE3F7), icon: Icons.event_available_rounded),
+                      StatCard(
+                        label: 'Appointments Kept',
+                        value:
+                            '${appointments.where((a) => a.statusValue == AppointmentStatus.completed).length}',
+                        subtitle: '${appointments.length} tracked',
+                        color: const Color(0xFFDDE3F7),
+                        icon: Icons.event_available_rounded,
+                      ),
                     ],
                   ),
                 ],
@@ -1895,7 +2362,36 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SectionHeader(title: 'Medication Adherence', action: const SoftChip(label: 'Summary only')),
+                  SectionHeader(
+                    title: 'Medication Graphical Summary',
+                    action: SoftChip(label: 'Live • ${meds.length} meds'),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Current status view with 30-day adherence context.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF4A678A),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _MedicationAdherenceDonut(
+                    adherence: adherence,
+                    taken: currentTakenCount,
+                    missed: currentMissedCount,
+                    pending: currentPendingCount,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            AppSectionCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SectionHeader(
+                    title: 'Medication Adherence',
+                    action: const SoftChip(label: 'Summary only'),
+                  ),
                   const SizedBox(height: 10),
                   Container(
                     width: double.infinity,
@@ -1907,12 +2403,22 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Medication adherence: $adherence%', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF103A86))),
-                        const SizedBox(height: 4),
-                        Text('Missed doses (30 days): $missedCount', style: Theme.of(context).textTheme.bodyMedium),
+                        Text(
+                          'Medication adherence: $adherence%',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF103A86),
+                          ),
+                        ),
                         const SizedBox(height: 4),
                         Text(
-                          mostMissedMedicationName == null || mostMissedMedicationCount == 0
+                          'Missed doses (30 days): $missedCount',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          mostMissedMedicationName == null ||
+                                  mostMissedMedicationCount == 0
                               ? 'Most missed: None'
                               : 'Most missed: $mostMissedMedicationName ($mostMissedMedicationCount time${mostMissedMedicationCount == 1 ? '' : 's'})',
                           style: Theme.of(context).textTheme.bodyMedium,
@@ -1933,33 +2439,60 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   if (appointments.isEmpty)
                     const Text('No appointments recorded yet.')
                   else
-                    ...appointments.take(3).map(
-                      (appointment) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(color: const Color(0xFFF9F6EA), borderRadius: BorderRadius.circular(18)),
-                          child: Row(
-                            children: [
-                              const CircleAvatar(backgroundColor: Color(0xFF103A86), child: Icon(Icons.check_rounded, color: Colors.white)),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('${appointment.doctorName} - ${appointment.location}', style: const TextStyle(fontWeight: FontWeight.w800)),
-                                    Text(_shortDate(appointment.appointmentDateTime)),
-                                  ],
-                                ),
+                    ...appointments
+                        .take(3)
+                        .map(
+                          (appointment) => Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF9F6EA),
+                                borderRadius: BorderRadius.circular(18),
                               ),
-                              SoftChip(label: appointment.statusValue.label, color: const Color(0xFFDDE9F6)),
-                            ],
+                              child: Row(
+                                children: [
+                                  const CircleAvatar(
+                                    backgroundColor: Color(0xFF103A86),
+                                    child: Icon(
+                                      Icons.check_rounded,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '${appointment.doctorName} - ${appointment.location}',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        Text(
+                                          _shortDate(
+                                            appointment.appointmentDateTime,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  SoftChip(
+                                    label: appointment.statusValue.label,
+                                    color: const Color(0xFFDDE9F6),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
                   const SizedBox(height: 6),
-                  Text('$attendance% attendance rate', style: const TextStyle(fontWeight: FontWeight.w800)),
+                  Text(
+                    '$attendance% attendance rate',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
                 ],
               ),
             ),
@@ -1971,7 +2504,11 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   children: [
                     const SectionHeader(title: 'Latest Clinical Note'),
                     const SizedBox(height: 10),
-                    Text(vitals.first.notes.isEmpty ? 'No note added.' : vitals.first.notes),
+                    Text(
+                      vitals.first.notes.isEmpty
+                          ? 'No note added.'
+                          : vitals.first.notes,
+                    ),
                   ],
                 ),
               ),
@@ -1979,16 +2516,48 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             CareCrewPrimaryButton(
               label: 'Activity Feed →',
               leading: const Icon(Icons.receipt_long_rounded),
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ActivityScreen(uid: widget.uid))),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ActivityScreen(uid: widget.uid),
+                ),
+              ),
             ),
           ] else ...[
             Text(
               'Summary for ${patient?.fullName.isNotEmpty == true ? patient!.fullName : 'this care account'} (Last 7 Days)',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(color: const Color(0xFF4A678A), fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                color: const Color(0xFF4A678A),
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 12),
             AppSectionCard(
-              borderColor: alerts.isEmpty ? const Color(0xFFDDE9F6) : const Color(0xFF8A1120),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SectionHeader(title: 'Doctor Care Graphical Summary'),
+                  const SizedBox(height: 8),
+                  Text(
+                    'A clear clinical snapshot of medications, appointments, and vitals alerts.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF4A678A),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _DoctorSnapshotBarChart(
+                    medicationTaken: takenCount,
+                    medicationMissed: missedCount,
+                    appointmentsKept: completedAppointments,
+                    vitalAlerts: vitalAlertCount,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            AppSectionCard(
+              borderColor: alerts.isEmpty
+                  ? const Color(0xFFDDE9F6)
+                  : const Color(0xFF8A1120),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1997,14 +2566,21 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   if (alerts.isEmpty)
                     const Text('No critical alerts in the last 30 days.')
                   else
-                    ...alerts.take(3).map((alert) => Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: SoftChip(label: alert.title, color: const Color(0xFFF7D2D4), textColor: const Color(0xFF8A1120)),
-                        )),
+                    ...alerts
+                        .take(3)
+                        .map(
+                          (alert) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: SoftChip(
+                              label: alert.title,
+                              color: const Color(0xFFF7D2D4),
+                              textColor: const Color(0xFF8A1120),
+                            ),
+                          ),
+                        ),
                 ],
               ),
             ),
-            const SizedBox(height: 16),
             AppSectionCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2020,109 +2596,73 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                         child: Container(
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: medication.status == 'missed' ? const Color(0xFFFCE7E8) : const Color(0xFFFFF6D5),
+                            color: medication.status == 'missed'
+                                ? const Color(0xFFFCE7E8)
+                                : const Color(0xFFFFF6D5),
                             borderRadius: BorderRadius.circular(18),
                           ),
                           child: Row(
                             children: [
-                              const CircleAvatar(backgroundColor: Color(0xFF103A86), child: Icon(Icons.medication, color: Colors.white)),
+                              const CircleAvatar(
+                                backgroundColor: Color(0xFF103A86),
+                                child: Icon(Icons.medication_rounded, color: Colors.white),
+                              ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(medication.name, style: const TextStyle(fontWeight: FontWeight.w800)),
+                                    Text(
+                                      medication.name,
+                                      style: const TextStyle(fontWeight: FontWeight.w800),
+                                    ),
                                     Text('${medication.dosage} • ${medication.timeLabel}'),
                                   ],
                                 ),
                               ),
-                              Text(medication.status.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w800)),
+                              SoftChip(
+                                label: medication.status,
+                                color: _statusColor(medication.status).withValues(alpha: 0.16),
+                                textColor: _statusColor(medication.status),
+                              ),
                             ],
                           ),
                         ),
                       ),
                     ),
-                  if (missedCount > 0) ...[
-                    const SizedBox(height: 10),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF7DDE0),
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '$missedCount Missed Doses (Last 30 Days)',
-                            style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF8A1120)),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            mostMissedMedicationName == null || mostMissedMedicationCount == 0
-                                ? 'Most missed: None'
-                                : 'Most missed: $mostMissedMedicationName ($mostMissedMedicationCount time${mostMissedMedicationCount == 1 ? '' : 's'})',
-                            style: const TextStyle(color: Color(0xFF8A1120)),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            AppSectionCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SectionHeader(title: '7-Day Trend'),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _TrendSummaryCard(
-                          label: 'Blood Pressure',
-                          value: latestRecentVital == null ? '0/0' : '${latestRecentVital.systolic}/${latestRecentVital.diastolic}',
-                          color: const Color(0xFFDDE3F7),
-                          points: systolicSpots.map((spot) => spot.y).toList(),
-                          valueStyleSize: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _TrendSummaryCard(
-                          label: 'Temperature',
-                          value: latestRecentVital == null ? '0.0°' : '${latestRecentVital.temperature.toStringAsFixed(1)}°F',
-                          color: const Color(0xFFFFF6D5),
-                          points: temperatureSpots.map((spot) => spot.y).toList(),
-                          valueStyleSize: 20,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            AppSectionCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SectionHeader(title: 'Latest Clinical Note'),
-                  const SizedBox(height: 10),
-                  Text(vitals.isEmpty || vitals.first.notes.isEmpty ? 'No recent clinical note.' : vitals.first.notes),
                 ],
               ),
             ),
             const SizedBox(height: 16),
             CareCrewPrimaryButton(
-              label: 'Export Report',
-              leading: const Icon(Icons.upload_file_rounded),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Export feature can be wired to PDF generation if needed.')));
-              },
+              label: _isExportingReport ? 'Generating Report...' : 'Export Doctor Report (PDF)',
+              leading: _isExportingReport
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.upload_file_rounded),
+              onPressed: _isExportingReport
+                  ? null
+                  : () => _exportDoctorReportPdf(
+                      patientName: patient?.fullName.isNotEmpty == true
+                          ? patient!.fullName
+                          : 'Care Account Patient',
+                      adherence: adherence,
+                      missedCount: missedCount,
+                      mostMissedMedicationName: mostMissedMedicationName,
+                      mostMissedMedicationCount: mostMissedMedicationCount,
+                      appointments: appointments,
+                      attendance: attendance,
+                      alerts: alerts,
+                      medications: meds,
+                      latestRecentVital: latestRecentVital,
+                      latestClinicalNote:
+                          vitals.isEmpty || vitals.first.notes.isEmpty
+                              ? 'No recent clinical note.'
+                              : vitals.first.notes,
+                    ),
             ),
           ],
         ],
@@ -2131,55 +2671,308 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   }
 }
 
-class _TrendSummaryCard extends StatelessWidget {
-  const _TrendSummaryCard({
+class _MedicationAdherenceDonut extends StatelessWidget {
+  const _MedicationAdherenceDonut({
+    required this.adherence,
+    required this.taken,
+    required this.missed,
+    required this.pending,
+  });
+
+  final int adherence;
+  final int taken;
+  final int missed;
+  final int pending;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = taken + missed + pending;
+    final hasData = total > 0;
+
+    final sections = hasData
+        ? [
+            PieChartSectionData(
+              value: taken.toDouble(),
+              color: const Color(0xFF2BB673),
+              radius: 30,
+              title: '',
+            ),
+            PieChartSectionData(
+              value: missed.toDouble(),
+              color: const Color(0xFFCC3B4A),
+              radius: 30,
+              title: '',
+            ),
+            PieChartSectionData(
+              value: pending.toDouble(),
+              color: const Color(0xFFF0C84B),
+              radius: 30,
+              title: '',
+            ),
+          ]
+        : [
+            PieChartSectionData(
+              value: 1,
+              color: const Color(0xFFE2EAF5),
+              radius: 30,
+              title: '',
+            ),
+          ];
+
+    return Column(
+      children: [
+        SizedBox(
+          height: 210,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              PieChart(
+                PieChartData(
+                  startDegreeOffset: -90,
+                  sectionsSpace: 3,
+                  centerSpaceRadius: 62,
+                  sections: sections,
+                ),
+              ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '$adherence%',
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      color: const Color(0xFF103A86),
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  Text(
+                    'Adherence',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF4A678A),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          children: [
+            _LegendChip(
+              label: 'Taken',
+              value: taken,
+              color: const Color(0xFF2BB673),
+            ),
+            _LegendChip(
+              label: 'Missed',
+              value: missed,
+              color: const Color(0xFFCC3B4A),
+            ),
+            _LegendChip(
+              label: 'Pending',
+              value: pending,
+              color: const Color(0xFFF0C84B),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DoctorSnapshotBarChart extends StatelessWidget {
+  const _DoctorSnapshotBarChart({
+    required this.medicationTaken,
+    required this.medicationMissed,
+    required this.appointmentsKept,
+    required this.vitalAlerts,
+  });
+
+  final int medicationTaken;
+  final int medicationMissed;
+  final int appointmentsKept;
+  final int vitalAlerts;
+
+  @override
+  Widget build(BuildContext context) {
+    final metrics = [
+      _MetricBarData('Taken', 'Tk', medicationTaken, const Color(0xFF2BB673)),
+      _MetricBarData('Missed', 'Ms', medicationMissed, const Color(0xFFCC3B4A)),
+      _MetricBarData(
+        'Appts Kept',
+        'Ap',
+        appointmentsKept,
+        const Color(0xFF3468C0),
+      ),
+      _MetricBarData(
+        'Vital Alerts',
+        'Al',
+        vitalAlerts,
+        const Color(0xFF8A1120),
+      ),
+    ];
+
+    final maxValue = metrics
+        .map((metric) => metric.value)
+        .fold<int>(0, math.max);
+    final maxY = math.max(maxValue + 1, 4).toDouble();
+    final interval = maxY <= 4 ? 1.0 : (maxY / 4).ceilToDouble();
+
+    return Column(
+      children: [
+        SizedBox(
+          height: 240,
+          child: BarChart(
+            BarChartData(
+              maxY: maxY,
+              alignment: BarChartAlignment.spaceAround,
+              gridData: FlGridData(
+                show: true,
+                drawVerticalLine: false,
+                horizontalInterval: interval,
+                getDrawingHorizontalLine: (value) =>
+                    FlLine(color: const Color(0xFFDCE4F2), strokeWidth: 1),
+              ),
+              borderData: FlBorderData(show: false),
+              barTouchData: BarTouchData(
+                enabled: true,
+                touchTooltipData: BarTouchTooltipData(
+                  fitInsideHorizontally: true,
+                  fitInsideVertically: true,
+                  getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                    final metric = metrics[group.x.toInt()];
+                    return BarTooltipItem(
+                      '${metric.label}\n${metric.value}',
+                      const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    );
+                  },
+                ),
+              ),
+              titlesData: FlTitlesData(
+                rightTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                topTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 28,
+                    interval: interval,
+                    getTitlesWidget: (value, meta) {
+                      return Text(
+                        value.toInt().toString(),
+                        style: const TextStyle(
+                          color: Color(0xFF5A7094),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    getTitlesWidget: (value, meta) {
+                      final index = value.toInt();
+                      if (index < 0 || index >= metrics.length)
+                        return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          metrics[index].shortLabel,
+                          style: const TextStyle(
+                            color: Color(0xFF5A7094),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              barGroups: List.generate(metrics.length, (index) {
+                final metric = metrics[index];
+                return BarChartGroupData(
+                  x: index,
+                  barRods: [
+                    BarChartRodData(
+                      toY: metric.value.toDouble(),
+                      width: 20,
+                      color: metric.color,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ],
+                );
+              }),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          children: metrics
+              .map(
+                (metric) => _LegendChip(
+                  label: metric.label,
+                  value: metric.value,
+                  color: metric.color,
+                ),
+              )
+              .toList(),
+        ),
+      ],
+    );
+  }
+}
+
+class _LegendChip extends StatelessWidget {
+  const _LegendChip({
     required this.label,
     required this.value,
     required this.color,
-    required this.points,
-    required this.valueStyleSize,
   });
 
   final String label;
-  final String value;
+  final int value;
   final Color color;
-  final List<double> points;
-  final double valueStyleSize;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(22),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFD8E2F1)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            label,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF6B7E9B)),
+          Container(
+            width: 9,
+            height: 9,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(99),
+            ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(width: 6),
           Text(
-            value,
-            style: TextStyle(fontSize: valueStyleSize, fontWeight: FontWeight.w900, color: const Color(0xFF103A86)),
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            height: 34,
-            width: double.infinity,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return CustomPaint(
-                  size: Size(constraints.maxWidth, 34),
-                  painter: _SparklinePainter(
-                    points: points,
-                    color: const Color(0xFF103A86),
-                  ),
-                );
-              },
+            '$label: $value',
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF24446D),
             ),
           ),
         ],
@@ -2188,45 +2981,13 @@ class _TrendSummaryCard extends StatelessWidget {
   }
 }
 
-class _SparklinePainter extends CustomPainter {
-  const _SparklinePainter({required this.points, required this.color});
+class _MetricBarData {
+  const _MetricBarData(this.label, this.shortLabel, this.value, this.color);
 
-  final List<double> points;
+  final String label;
+  final String shortLabel;
+  final int value;
   final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (points.isEmpty) return;
-
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final maxValue = points.reduce(math.max);
-    final minValue = points.reduce(math.min);
-    final range = (maxValue - minValue).abs() < 0.001 ? 1.0 : maxValue - minValue;
-    final path = Path();
-    for (var index = 0; index < points.length; index++) {
-      final x = points.length == 1 ? size.width / 2 : (index / (points.length - 1)) * size.width;
-      final normalized = (points[index] - minValue) / range;
-      final y = size.height - (normalized * (size.height - 4)) - 2;
-      if (index == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _SparklinePainter oldDelegate) {
-    return oldDelegate.points != points || oldDelegate.color != color;
-  }
 }
 
 class CareCircleScreen extends ConsumerStatefulWidget {
@@ -2251,14 +3012,21 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
   Future<void> _addCareNote() async {
     final note = _noteController.text.trim();
     if (note.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a note first.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Enter a note first.')));
       return;
     }
 
     setState(() => _savingNote = true);
     try {
-      final actor = ref.read(currentUserProfileProvider(widget.uid)).value?.displayName;
-      await ref.read(repositoryProvider).addActivityLog(
+      final actor = ref
+          .read(currentUserProfileProvider(widget.uid))
+          .value
+          ?.displayName;
+      await ref
+          .read(repositoryProvider)
+          .addActivityLog(
             uid: widget.uid,
             type: 'care_note_added',
             title: 'Care note added',
@@ -2273,7 +3041,10 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
         );
       }
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
       if (mounted) setState(() => _savingNote = false);
     }
@@ -2288,7 +3059,9 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
         content: TextField(
           controller: _noteController,
           maxLines: 4,
-          decoration: const InputDecoration(hintText: 'Write an update for the care circle...'),
+          decoration: const InputDecoration(
+            hintText: 'Write an update for the care circle...',
+          ),
         ),
         actions: [
           TextButton(
@@ -2311,8 +3084,12 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final caregivers = ref.watch(caregiversProvider(widget.uid)).value ?? const <CaregiverEntry>[];
-    final logs = ref.watch(activityLogsProvider(widget.uid)).value ?? const <ActivityLogEntry>[];
+    final caregivers =
+        ref.watch(caregiversProvider(widget.uid)).value ??
+        const <CaregiverEntry>[];
+    final logs =
+        ref.watch(activityLogsProvider(widget.uid)).value ??
+        const <ActivityLogEntry>[];
     ActivityLogEntry? latestCareNote;
     for (final entry in logs) {
       if (entry.type == 'care_note_added') {
@@ -2355,15 +3132,26 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SoftChip(label: 'Latest Update', color: Color(0xFFF7D7E6), textColor: Color(0xFF8B3A68)),
+                const SoftChip(
+                  label: 'Latest Update',
+                  color: Color(0xFFF7D7E6),
+                  textColor: Color(0xFF8B3A68),
+                ),
                 const SizedBox(height: 12),
                 Text(
-                  latestUpdate == null ? 'No updates yet' : '"${latestUpdate.details}"',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+                  latestUpdate == null
+                      ? 'No updates yet'
+                      : '"${latestUpdate.details}"',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 if (latestUpdate?.actor.isNotEmpty == true)
-                  Text('Posted by ${latestUpdate!.actor} • ${_relativeTime(latestUpdate.createdAt ?? DateTime.now())}', style: Theme.of(context).textTheme.bodySmall),
+                  Text(
+                    'Posted by ${latestUpdate!.actor} • ${_relativeTime(latestUpdate.createdAt ?? DateTime.now())}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 const SizedBox(height: 10),
                 Align(
                   alignment: Alignment.centerRight,
@@ -2377,14 +3165,13 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
             ),
           ),
           const SizedBox(height: 18),
-          SectionHeader(
-            title: 'Team Members (${caregivers.length})',
-          ),
+          SectionHeader(title: 'Team Members (${caregivers.length})'),
           const SizedBox(height: 10),
           if (caregivers.isEmpty)
             const EmptyStateCard(
               title: 'No caregivers added yet',
-              subtitle: 'Invite family or professionals to keep everyone aligned.',
+              subtitle:
+                  'Invite family or professionals to keep everyone aligned.',
               icon: Icons.groups_rounded,
             )
           else
@@ -2392,30 +3179,50 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
               (caregiver) => Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: AppSectionCard(
-                  backgroundColor: caregiver.inviteStatus == 'pending' ? const Color(0xFFE7F3FD) : Colors.white,
+                  backgroundColor: caregiver.inviteStatus == 'pending'
+                      ? const Color(0xFFE7F3FD)
+                      : Colors.white,
                   child: Row(
                     children: [
                       CircleAvatar(
                         radius: 24,
                         backgroundColor: const Color(0xFFF2D7E8),
-                        child: Text(caregiver.name.isNotEmpty ? caregiver.name[0].toUpperCase() : 'C', style: const TextStyle(fontWeight: FontWeight.w900)),
+                        child: Text(
+                          caregiver.name.isNotEmpty
+                              ? caregiver.name[0].toUpperCase()
+                              : 'C',
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(caregiver.name, style: const TextStyle(fontWeight: FontWeight.w900)),
+                            Text(
+                              caregiver.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
                             Text(
                               caregiver.inviteStatus == 'pending'
                                   ? 'Invite sent'
-                                  : (caregiver.relationship.trim().isEmpty ? caregiver.contact : caregiver.relationship),
+                                  : (caregiver.relationship.trim().isEmpty
+                                        ? caregiver.contact
+                                        : caregiver.relationship),
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                             const SizedBox(height: 4),
                             Row(
                               children: [
-                                SoftChip(label: caregiver.roleValue.label, color: _statusColor(caregiver.role).withValues(alpha: 0.16), textColor: _statusColor(caregiver.role)),
+                                SoftChip(
+                                  label: caregiver.roleValue.label,
+                                  color: _statusColor(
+                                    caregiver.role,
+                                  ).withValues(alpha: 0.16),
+                                  textColor: _statusColor(caregiver.role),
+                                ),
                               ],
                             ),
                           ],
@@ -2424,7 +3231,12 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
                       if (caregiver.canEdit)
                         IconButton(
                           onPressed: () async {
-                            await ref.read(repositoryProvider).deleteCaregiver(uid: widget.uid, caregiverId: caregiver.id);
+                            await ref
+                                .read(repositoryProvider)
+                                .deleteCaregiver(
+                                  uid: widget.uid,
+                                  caregiverId: caregiver.id,
+                                );
                             ref.invalidate(caregiversProvider(widget.uid));
                             ref.invalidate(activityLogsProvider(widget.uid));
                           },
@@ -2443,7 +3255,9 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
           const SizedBox(height: 24),
           FilledButton.icon(
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => AddCaregiverScreen(uid: widget.uid)),
+              MaterialPageRoute(
+                builder: (_) => AddCaregiverScreen(uid: widget.uid),
+              ),
             ),
             icon: const Icon(Icons.add_rounded),
             label: const Text('Invite to Circle'),
@@ -2451,8 +3265,13 @@ class _CareCircleScreenState extends ConsumerState<CareCircleScreen> {
               minimumSize: const Size.fromHeight(64),
               backgroundColor: const Color(0xFF103A86),
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
-              textStyle: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(32),
+              ),
+              textStyle: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ],
@@ -2499,21 +3318,28 @@ class _AddCaregiverScreenState extends ConsumerState<AddCaregiverScreen> {
   }
 
   Future<void> _inviteCaregiver() async {
-    if (_nameController.text.trim().isEmpty || _emailController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter caregiver name and email.')));
+    if (_nameController.text.trim().isEmpty ||
+        _emailController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter caregiver name and email.')),
+      );
       return;
     }
 
     final inviteEmail = _emailController.text.trim().toLowerCase();
     if (!_isValidEmail(inviteEmail)) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid email address.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid email address.')),
+      );
       return;
     }
 
     setState(() => _saving = true);
     try {
       final inviteCode = _generateInviteCode();
-      await ref.read(repositoryProvider).saveCaregiver(
+      await ref
+          .read(repositoryProvider)
+          .saveCaregiver(
             uid: widget.uid,
             caregiver: CaregiverEntry(
               id: '',
@@ -2536,7 +3362,8 @@ class _AddCaregiverScreenState extends ConsumerState<AddCaregiverScreen> {
       ref.invalidate(activityLogsProvider(widget.uid));
 
       if (mounted) {
-        final testDeepLink = 'carecrew://accept-invite/$inviteCode?email=${Uri.encodeComponent(inviteEmail)}&uid=${Uri.encodeComponent(widget.uid)}';
+        final testDeepLink =
+            'carecrew://accept-invite/$inviteCode?email=${Uri.encodeComponent(inviteEmail)}&uid=${Uri.encodeComponent(widget.uid)}';
         showDialog(
           context: context,
           builder: (_) => AlertDialog(
@@ -2548,19 +3375,40 @@ class _AddCaregiverScreenState extends ConsumerState<AddCaregiverScreen> {
                 children: [
                   Text('Invitation created for $inviteEmail'),
                   const SizedBox(height: 12),
-                  const Text('📧 Email Status:', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const Text(
+                    '📧 Email Status:',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
                   const SizedBox(height: 4),
-                  const Text('When Cloud Functions is deployed, this caregiver will receive an email with the acceptance link.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  const Text(
+                    'When Cloud Functions is deployed, this caregiver will receive an email with the acceptance link.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
                   const SizedBox(height: 16),
-                  const Text('🔗 Test Link (Development):', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const Text(
+                    '🔗 Test Link (Development):',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
                   const SizedBox(height: 4),
                   Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(6)),
-                    child: SelectableText(testDeepLink, style: const TextStyle(fontSize: 11, fontFamily: 'monospace')),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: SelectableText(
+                      testDeepLink,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 12),
-                  const Text('Use this link to test the acceptance flow on your device.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  const Text(
+                    'Use this link to test the acceptance flow on your device.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
                 ],
               ),
             ),
@@ -2577,7 +3425,10 @@ class _AddCaregiverScreenState extends ConsumerState<AddCaregiverScreen> {
               TextButton(
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: testDeepLink));
-                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Link copied to clipboard')));
+                  if (mounted)
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Link copied to clipboard')),
+                    );
                   Navigator.pop(context);
                 },
                 child: const Text('Copy Link'),
@@ -2591,7 +3442,10 @@ class _AddCaregiverScreenState extends ConsumerState<AddCaregiverScreen> {
         );
       }
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -2610,18 +3464,42 @@ class _AddCaregiverScreenState extends ConsumerState<AddCaregiverScreen> {
               children: [
                 const SectionHeader(title: 'Invite to Circle'),
                 const SizedBox(height: 14),
-                CareCrewTextField(controller: _nameController, label: 'Name', hintText: 'Caregiver name'),
+                CareCrewTextField(
+                  controller: _nameController,
+                  label: 'Name',
+                  hintText: 'Caregiver name',
+                ),
                 const SizedBox(height: 14),
-                CareCrewTextField(controller: _emailController, label: 'Email', hintText: 'caregiver@example.com'),
+                CareCrewTextField(
+                  controller: _emailController,
+                  label: 'Email',
+                  hintText: 'caregiver@example.com',
+                ),
                 const SizedBox(height: 14),
-                CareCrewTextField(controller: _mobileController, label: 'Mobile Number', hintText: '+91XXXXXXXXXX'),
+                CareCrewTextField(
+                  controller: _mobileController,
+                  label: 'Mobile Number',
+                  hintText: '+91XXXXXXXXXX',
+                ),
                 const SizedBox(height: 14),
-                CareCrewTextField(controller: _relationshipController, label: 'Relationship', hintText: 'Spouse, nurse, daughter...'),
+                CareCrewTextField(
+                  controller: _relationshipController,
+                  label: 'Relationship',
+                  hintText: 'Spouse, nurse, daughter...',
+                ),
                 const SizedBox(height: 14),
                 DropdownButtonFormField<CaregiverRole>(
                   initialValue: _role,
-                  items: CaregiverRole.values.map((role) => DropdownMenuItem(value: role, child: Text(role.label))).toList(),
-                  onChanged: (value) => setState(() => _role = value ?? CaregiverRole.editor),
+                  items: CaregiverRole.values
+                      .map(
+                        (role) => DropdownMenuItem(
+                          value: role,
+                          child: Text(role.label),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) =>
+                      setState(() => _role = value ?? CaregiverRole.editor),
                   decoration: const InputDecoration(labelText: 'Role'),
                 ),
                 const SizedBox(height: 14),
@@ -2655,7 +3533,9 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final logs = ref.watch(activityLogsProvider(widget.uid)).value ?? const <ActivityLogEntry>[];
+    final logs =
+        ref.watch(activityLogsProvider(widget.uid)).value ??
+        const <ActivityLogEntry>[];
     final repo = ref.read(repositoryProvider);
     final filteredLogs = switch (_range) {
       _ActivityRange.today => repo.logsForRange(logs, repo.startOfToday()),
@@ -2663,10 +3543,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
       _ActivityRange.all => logs,
     };
 
-    Widget filterChip({
-      required _ActivityRange value,
-      required String label,
-    }) {
+    Widget filterChip({required _ActivityRange value, required String label}) {
       final selected = _range == value;
       return GestureDetector(
         onTap: () => setState(() => _range = value),
@@ -2696,7 +3573,12 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
             child: CircleAvatar(
               radius: 18,
               backgroundColor: Colors.white,
-              child: Text('C', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900)),
+              child: Text(
+                'C',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+              ),
             ),
           ),
         ],
@@ -2706,7 +3588,10 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(color: const Color(0xFF103A86), borderRadius: BorderRadius.circular(16)),
+            decoration: BoxDecoration(
+              color: const Color(0xFF103A86),
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -2720,7 +3605,8 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
           if (filteredLogs.isEmpty)
             const EmptyStateCard(
               title: 'No activity yet',
-              subtitle: 'Every action, note, and health log will appear here in real time.',
+              subtitle:
+                  'Every action, note, and health log will appear here in real time.',
               icon: Icons.timeline_rounded,
             )
           else
@@ -2730,7 +3616,10 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                 Container(
                   width: 4,
                   height: math.max(500, filteredLogs.length * 110).toDouble(),
-                  decoration: BoxDecoration(color: const Color(0xFF8FC2F1), borderRadius: BorderRadius.circular(999)),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF8FC2F1),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -2747,29 +3636,62 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                                     width: 42,
                                     height: 42,
                                     decoration: BoxDecoration(
-                                      color: _statusColor(entry.type).withValues(alpha: 0.16),
+                                      color: _statusColor(
+                                        entry.type,
+                                      ).withValues(alpha: 0.16),
                                       shape: BoxShape.circle,
                                     ),
-                                    child: Icon(_iconForLog(entry.type), color: _statusColor(entry.type), size: 20),
+                                    child: Icon(
+                                      _iconForLog(entry.type),
+                                      color: _statusColor(entry.type),
+                                      size: 20,
+                                    ),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        Text(entry.title, style: const TextStyle(fontWeight: FontWeight.w900)),
+                                        Text(
+                                          entry.title,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
                                         const SizedBox(height: 4),
                                         Text(entry.details),
                                         const SizedBox(height: 10),
                                         Row(
                                           children: [
-                                            Icon(Icons.person_outline, size: 16, color: Colors.grey.shade600),
+                                            Icon(
+                                              Icons.person_outline,
+                                              size: 16,
+                                              color: Colors.grey.shade600,
+                                            ),
                                             const SizedBox(width: 4),
-                                            Text(entry.actor, style: TextStyle(color: Colors.grey.shade600)),
+                                            Text(
+                                              entry.actor,
+                                              style: TextStyle(
+                                                color: Colors.grey.shade600,
+                                              ),
+                                            ),
                                             const SizedBox(width: 14),
-                                            Icon(Icons.schedule, size: 16, color: Colors.grey.shade600),
+                                            Icon(
+                                              Icons.schedule,
+                                              size: 16,
+                                              color: Colors.grey.shade600,
+                                            ),
                                             const SizedBox(width: 4),
-                                            Text(_relativeTime(entry.createdAt ?? DateTime.now()), style: TextStyle(color: Colors.grey.shade600)),
+                                            Text(
+                                              _relativeTime(
+                                                entry.createdAt ??
+                                                    DateTime.now(),
+                                              ),
+                                              style: TextStyle(
+                                                color: Colors.grey.shade600,
+                                              ),
+                                            ),
                                           ],
                                         ),
                                       ],
@@ -2822,15 +3744,24 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
   bool _uploading = false;
 
   Future<void> _uploadDocument() async {
-    final result = await FilePicker.pickFiles(type: FileType.any, allowMultiple: false, withData: true);
+    final result = await FilePicker.pickFiles(
+      type: FileType.any,
+      allowMultiple: false,
+      withData: true,
+    );
     if (result == null || result.files.isEmpty) return;
     setState(() => _uploading = true);
     try {
-      await ref.read(repositoryProvider).uploadDocument(uid: widget.uid, file: result.files.single);
+      await ref
+          .read(repositoryProvider)
+          .uploadDocument(uid: widget.uid, file: result.files.single);
       ref.invalidate(documentsProvider(widget.uid));
       ref.invalidate(activityLogsProvider(widget.uid));
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
@@ -2838,7 +3769,9 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final docs = ref.watch(documentsProvider(widget.uid)).value ?? const <DocumentEntry>[];
+    final docs =
+        ref.watch(documentsProvider(widget.uid)).value ??
+        const <DocumentEntry>[];
     return Scaffold(
       appBar: AppBar(
         title: const Text('Documents'),
@@ -2848,7 +3781,12 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
             child: CircleAvatar(
               radius: 18,
               backgroundColor: Colors.white,
-              child: Text('C', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900)),
+              child: Text(
+                'C',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+              ),
             ),
           ),
         ],
@@ -2866,9 +3804,18 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
                   child: Icon(Icons.add, size: 34, color: Color(0xFF103A86)),
                 ),
                 const SizedBox(height: 12),
-                Text('Upload New Document', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
+                Text(
+                  'Upload New Document',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                ),
                 const SizedBox(height: 6),
-                Text('Tap to add prescriptions, lab reports, or instructions', textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyMedium),
+                Text(
+                  'Tap to add prescriptions, lab reports, or instructions',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
                 const SizedBox(height: 14),
                 OutlinedButton.icon(
                   onPressed: _uploading ? null : _uploadDocument,
@@ -2876,7 +3823,9 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
                   label: Text(_uploading ? 'Uploading...' : 'Upload File'),
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                     side: const BorderSide(color: Color(0xFF103A86)),
                   ),
                 ),
@@ -2887,7 +3836,8 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
           if (docs.isEmpty)
             const EmptyStateCard(
               title: 'No documents yet',
-              subtitle: 'Upload discharge summaries, prescriptions, and lab reports here.',
+              subtitle:
+                  'Upload discharge summaries, prescriptions, and lab reports here.',
               icon: Icons.folder_open_rounded,
             )
           else
@@ -2898,34 +3848,53 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(document.fileName, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+                      Text(
+                        document.fileName,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w900),
+                      ),
                       const SizedBox(height: 6),
-                      Text('${_shortDate(document.createdAt ?? DateTime.now())} • ${(document.fileSizeBytes / 1024).toStringAsFixed(1)} KB • ${document.mimeType.toUpperCase()}'),
+                      Text(
+                        '${_shortDate(document.createdAt ?? DateTime.now())} • ${(document.fileSizeBytes / 1024).toStringAsFixed(1)} KB • ${document.mimeType.toUpperCase()}',
+                      ),
                       const SizedBox(height: 12),
                       Row(
                         children: [
                           Expanded(
                             child: CareCrewPrimaryButton(
                               label: 'View',
-                              onPressed: () => _launchExternal(document.downloadUrl),
+                              onPressed: () =>
+                                  _launchExternal(document.downloadUrl),
                               leading: const Icon(Icons.visibility_rounded),
                             ),
                           ),
                           const SizedBox(width: 10),
                           IconButton.filled(
-                            onPressed: () => _launchExternal(document.downloadUrl),
+                            onPressed: () =>
+                                _launchExternal(document.downloadUrl),
                             icon: const Icon(Icons.download_rounded),
-                            style: IconButton.styleFrom(backgroundColor: const Color(0xFFE8EEF8), foregroundColor: const Color(0xFF103A86)),
+                            style: IconButton.styleFrom(
+                              backgroundColor: const Color(0xFFE8EEF8),
+                              foregroundColor: const Color(0xFF103A86),
+                            ),
                           ),
                           const SizedBox(width: 8),
                           IconButton.filled(
                             onPressed: () async {
-                              await ref.read(repositoryProvider).deleteDocument(uid: widget.uid, document: document);
+                              await ref
+                                  .read(repositoryProvider)
+                                  .deleteDocument(
+                                    uid: widget.uid,
+                                    document: document,
+                                  );
                               ref.invalidate(documentsProvider(widget.uid));
                               ref.invalidate(activityLogsProvider(widget.uid));
                             },
                             icon: const Icon(Icons.delete_outline_rounded),
-                            style: IconButton.styleFrom(backgroundColor: const Color(0xFFF7D2D4), foregroundColor: const Color(0xFF8A1120)),
+                            style: IconButton.styleFrom(
+                              backgroundColor: const Color(0xFFF7D2D4),
+                              foregroundColor: const Color(0xFF8A1120),
+                            ),
                           ),
                         ],
                       ),
@@ -2972,7 +3941,12 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
   }
 
   Future<void> _pickDate() async {
-    final picked = await showDatePicker(context: context, firstDate: DateTime.now().subtract(const Duration(days: 3650)), lastDate: DateTime.now().add(const Duration(days: 3650)), initialDate: _date ?? DateTime.now());
+    final picked = await showDatePicker(
+      context: context,
+      firstDate: DateTime.now().subtract(const Duration(days: 3650)),
+      lastDate: DateTime.now().add(const Duration(days: 3650)),
+      initialDate: _date ?? DateTime.now(),
+    );
     if (picked != null) {
       setState(() {
         _date = picked;
@@ -2982,7 +3956,10 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
   }
 
   Future<void> _pickTime() async {
-    final picked = await showTimePicker(context: context, initialTime: _time ?? TimeOfDay.now());
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _time ?? TimeOfDay.now(),
+    );
     if (picked != null) {
       setState(() {
         _time = picked;
@@ -2994,13 +3971,23 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
   Future<void> _saveAppointment() async {
     if (!_formKey.currentState!.validate()) return;
     if (_date == null || _time == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select both date and time.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select both date and time.')),
+      );
       return;
     }
     setState(() => _saving = true);
     try {
-      final appointmentDateTime = DateTime(_date!.year, _date!.month, _date!.day, _time!.hour, _time!.minute);
-      await ref.read(repositoryProvider).saveAppointment(
+      final appointmentDateTime = DateTime(
+        _date!.year,
+        _date!.month,
+        _date!.day,
+        _time!.hour,
+        _time!.minute,
+      );
+      await ref
+          .read(repositoryProvider)
+          .saveAppointment(
             uid: widget.uid,
             appointment: AppointmentEntry(
               id: '',
@@ -3024,7 +4011,10 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
       ref.invalidate(appointmentsProvider(widget.uid));
       ref.invalidate(activityLogsProvider(widget.uid));
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -3032,7 +4022,9 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final appointments = ref.watch(appointmentsProvider(widget.uid)).value ?? const <AppointmentEntry>[];
+    final appointments =
+        ref.watch(appointmentsProvider(widget.uid)).value ??
+        const <AppointmentEntry>[];
     return Scaffold(
       appBar: AppBar(
         title: const Text('Appointments'),
@@ -3042,7 +4034,12 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
             child: CircleAvatar(
               radius: 18,
               backgroundColor: Colors.white,
-              child: Text('C', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900)),
+              child: Text(
+                'C',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+              ),
             ),
           ),
         ],
@@ -3058,13 +4055,22 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Next Appointment', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.white70)),
+                      Text(
+                        'Next Appointment',
+                        style: Theme.of(
+                          context,
+                        ).textTheme.bodyMedium?.copyWith(color: Colors.white70),
+                      ),
                       const SizedBox(height: 4),
                       Text(
                         appointments.isEmpty
                             ? 'None'
                             : 'In ${appointments.first.appointmentDateTime.difference(DateTime.now()).inDays.abs()} days',
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w900),
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                            ),
                       ),
                     ],
                   ),
@@ -3073,11 +4079,20 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text('Total Upcoming', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.white70)),
+                      Text(
+                        'Total Upcoming',
+                        style: Theme.of(
+                          context,
+                        ).textTheme.bodyMedium?.copyWith(color: Colors.white70),
+                      ),
                       const SizedBox(height: 4),
                       Text(
                         '${appointments.where((a) => a.appointmentDateTime.isAfter(DateTime.now())).length}',
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w900),
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                            ),
                       ),
                     ],
                   ),
@@ -3094,7 +4109,14 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
                 children: [
                   const SectionHeader(title: 'Add Appointment'),
                   const SizedBox(height: 14),
-                  CareCrewTextField(controller: _doctorController, label: 'Doctor Name', hintText: 'Dr. Name', validator: (value) => value == null || value.trim().isEmpty ? 'Doctor name required' : null),
+                  CareCrewTextField(
+                    controller: _doctorController,
+                    label: 'Doctor Name',
+                    hintText: 'Dr. Name',
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Doctor name required'
+                        : null,
+                  ),
                   const SizedBox(height: 14),
                   Row(
                     children: [
@@ -3105,7 +4127,10 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
                           hintText: 'Choose date',
                           readOnly: true,
                           onTap: _pickDate,
-                          suffixIcon: IconButton(onPressed: _pickDate, icon: const Icon(Icons.calendar_month_rounded)),
+                          suffixIcon: IconButton(
+                            onPressed: _pickDate,
+                            icon: const material.Icon(Icons.calendar_month_rounded),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -3116,24 +4141,52 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
                           hintText: 'Choose time',
                           readOnly: true,
                           onTap: _pickTime,
-                          suffixIcon: IconButton(onPressed: _pickTime, icon: const Icon(Icons.schedule_rounded)),
+                          suffixIcon: IconButton(
+                            onPressed: _pickTime,
+                            icon: const Icon(Icons.schedule_rounded),
+                          ),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 14),
-                  CareCrewTextField(controller: _locationController, label: 'Location', hintText: 'Clinic or hospital name', validator: (value) => value == null || value.trim().isEmpty ? 'Location required' : null),
+                  CareCrewTextField(
+                    controller: _locationController,
+                    label: 'Location',
+                    hintText: 'Clinic or hospital name',
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Location required'
+                        : null,
+                  ),
                   const SizedBox(height: 14),
-                  CareCrewTextField(controller: _notesController, label: 'Notes', hintText: 'What should caregivers prepare?', maxLines: 3),
+                  CareCrewTextField(
+                    controller: _notesController,
+                    label: 'Notes',
+                    hintText: 'What should caregivers prepare?',
+                    maxLines: 3,
+                  ),
                   const SizedBox(height: 14),
                   DropdownButtonFormField<AppointmentStatus>(
                     initialValue: _status,
-                    items: AppointmentStatus.values.map((status) => DropdownMenuItem(value: status, child: Text(status.label))).toList(),
-                    onChanged: (value) => setState(() => _status = value ?? AppointmentStatus.scheduled),
+                    items: AppointmentStatus.values
+                        .map(
+                          (status) => DropdownMenuItem(
+                            value: status,
+                            child: Text(status.label),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) => setState(
+                      () => _status = value ?? AppointmentStatus.scheduled,
+                    ),
                     decoration: const InputDecoration(labelText: 'Status'),
                   ),
                   const SizedBox(height: 14),
-                  CareCrewPrimaryButton(label: _saving ? 'Saving...' : 'Save Appointment', onPressed: _saving ? null : _saveAppointment, leading: const Icon(Icons.event_available_rounded)),
+                  CareCrewPrimaryButton(
+                    label: _saving ? 'Saving...' : 'Save Appointment',
+                    onPressed: _saving ? null : _saveAppointment,
+                    leading: const Icon(Icons.event_available_rounded),
+                  ),
                 ],
               ),
             ),
@@ -3150,28 +4203,45 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
               (appointment) => Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: AppSectionCard(
-                  backgroundColor: appointment.statusValue == AppointmentStatus.completed ? const Color(0xFFE6F7E9) : Colors.white,
+                  backgroundColor:
+                      appointment.statusValue == AppointmentStatus.completed
+                      ? const Color(0xFFE6F7E9)
+                      : Colors.white,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          const CircleAvatar(backgroundColor: Color(0xFF103A86), child: Icon(Icons.person, color: Colors.white)),
+                          const CircleAvatar(
+                            backgroundColor: Color(0xFF103A86),
+                            child: Icon(Icons.person, color: Colors.white),
+                          ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(appointment.doctorName, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
-                                Text('Status: ${appointment.statusValue.label}'),
+                                Text(
+                                  appointment.doctorName,
+                                  style: Theme.of(context).textTheme.titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.w900),
+                                ),
+                                Text(
+                                  'Status: ${appointment.statusValue.label}',
+                                ),
                               ],
                             ),
                           ),
-                          SoftChip(label: appointment.statusValue.label, color: const Color(0xFFDDE9F6)),
+                          SoftChip(
+                            label: appointment.statusValue.label,
+                            color: const Color(0xFFDDE9F6),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 10),
-                      Text('${_longDate(appointment.appointmentDateTime)} • ${_shortTime(appointment.appointmentDateTime)}'),
+                      Text(
+                        '${_longDate(appointment.appointmentDateTime)} • ${_shortTime(appointment.appointmentDateTime)}',
+                      ),
                       Text(appointment.location),
                       if (appointment.notes.isNotEmpty) ...[
                         const SizedBox(height: 6),
@@ -3184,7 +4254,13 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
                         children: [
                           TextButton.icon(
                             onPressed: () async {
-                              await ref.read(repositoryProvider).updateAppointmentStatus(uid: widget.uid, appointmentId: appointment.id, status: AppointmentStatus.completed);
+                              await ref
+                                  .read(repositoryProvider)
+                                  .updateAppointmentStatus(
+                                    uid: widget.uid,
+                                    appointmentId: appointment.id,
+                                    status: AppointmentStatus.completed,
+                                  );
                               ref.invalidate(appointmentsProvider(widget.uid));
                               ref.invalidate(activityLogsProvider(widget.uid));
                             },
@@ -3193,7 +4269,13 @@ class _AppointmentsScreenState extends ConsumerState<AppointmentsScreen> {
                           ),
                           TextButton.icon(
                             onPressed: () async {
-                              await ref.read(repositoryProvider).updateAppointmentStatus(uid: widget.uid, appointmentId: appointment.id, status: AppointmentStatus.cancelled);
+                              await ref
+                                  .read(repositoryProvider)
+                                  .updateAppointmentStatus(
+                                    uid: widget.uid,
+                                    appointmentId: appointment.id,
+                                    status: AppointmentStatus.cancelled,
+                                  );
                               ref.invalidate(appointmentsProvider(widget.uid));
                               ref.invalidate(activityLogsProvider(widget.uid));
                             },
@@ -3241,7 +4323,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final thresholds = ref.watch(thresholdsProvider(widget.uid)).value;
-    if (thresholds != null && !_tempController.text.isNotEmpty && !_systolicController.text.isNotEmpty && !_diastolicController.text.isNotEmpty && !_painController.text.isNotEmpty) {
+    if (thresholds != null &&
+        !_tempController.text.isNotEmpty &&
+        !_systolicController.text.isNotEmpty &&
+        !_diastolicController.text.isNotEmpty &&
+        !_painController.text.isNotEmpty) {
       _tempController.text = thresholds.temperatureHigh?.toString() ?? '';
       _systolicController.text = thresholds.systolicHigh?.toString() ?? '';
       _diastolicController.text = thresholds.diastolicHigh?.toString() ?? '';
@@ -3259,21 +4345,54 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 const SectionHeader(title: 'Vitals Thresholds'),
                 const SizedBox(height: 6),
-                Text('Leave a field empty if the alert should not use that threshold.', style: Theme.of(context).textTheme.bodyMedium),
+                Text(
+                  'Leave a field empty if the alert should not use that threshold.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
                 const SizedBox(height: 14),
                 Row(
                   children: [
-                    Expanded(child: CareCrewTextField(controller: _tempController, label: 'Temp High', hintText: '101.0', keyboardType: const TextInputType.numberWithOptions(decimal: true))),
+                    Expanded(
+                      child: CareCrewTextField(
+                        controller: _tempController,
+                        label: 'Temp High',
+                        hintText: '101.0',
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                      ),
+                    ),
                     const SizedBox(width: 12),
-                    Expanded(child: CareCrewTextField(controller: _systolicController, label: 'Systolic High', hintText: '140', keyboardType: TextInputType.number)),
+                    Expanded(
+                      child: CareCrewTextField(
+                        controller: _systolicController,
+                        label: 'Systolic High',
+                        hintText: '140',
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 14),
                 Row(
                   children: [
-                    Expanded(child: CareCrewTextField(controller: _diastolicController, label: 'Diastolic High', hintText: '90', keyboardType: TextInputType.number)),
+                    Expanded(
+                      child: CareCrewTextField(
+                        controller: _diastolicController,
+                        label: 'Diastolic High',
+                        hintText: '90',
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
                     const SizedBox(width: 12),
-                    Expanded(child: CareCrewTextField(controller: _painController, label: 'Pain High', hintText: '7', keyboardType: TextInputType.number)),
+                    Expanded(
+                      child: CareCrewTextField(
+                        controller: _painController,
+                        label: 'Pain High',
+                        hintText: '7',
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -3285,19 +4404,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           setState(() => _saving = true);
                           final messenger = ScaffoldMessenger.of(context);
                           try {
-                            await ref.read(repositoryProvider).saveThresholds(
+                            await ref
+                                .read(repositoryProvider)
+                                .saveThresholds(
                                   uid: widget.uid,
                                   thresholds: ThresholdConfig(
                                     id: 'default',
-                                    temperatureHigh: double.tryParse(_tempController.text.trim()),
-                                    systolicHigh: int.tryParse(_systolicController.text.trim()),
-                                    diastolicHigh: int.tryParse(_diastolicController.text.trim()),
-                                    painHigh: int.tryParse(_painController.text.trim()),
+                                    temperatureHigh: double.tryParse(
+                                      _tempController.text.trim(),
+                                    ),
+                                    systolicHigh: int.tryParse(
+                                      _systolicController.text.trim(),
+                                    ),
+                                    diastolicHigh: int.tryParse(
+                                      _diastolicController.text.trim(),
+                                    ),
+                                    painHigh: int.tryParse(
+                                      _painController.text.trim(),
+                                    ),
                                   ),
                                 );
                             ref.invalidate(thresholdsProvider(widget.uid));
                           } catch (error) {
-                            if (mounted) messenger.showSnackBar(SnackBar(content: Text(error.toString())));
+                            if (mounted)
+                              messenger.showSnackBar(
+                                SnackBar(content: Text(error.toString())),
+                              );
                           } finally {
                             if (mounted) setState(() => _saving = false);
                           }
@@ -3314,7 +4446,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 const SectionHeader(title: 'Important Notes'),
                 const SizedBox(height: 8),
-                const Text('All data stays inside users/{userId}/... and is isolated per authenticated user. Threshold values should only be set by a certified doctor.'),
+                const Text(
+                  'All data stays inside users/{userId}/... and is isolated per authenticated user. Threshold values should only be set by a certified doctor.',
+                ),
               ],
             ),
           ),
@@ -3339,9 +4473,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final profile = ref.watch(currentUserProfileProvider(widget.uid)).value;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('My Profile'),
-      ),
+      appBar: AppBar(title: const Text('My Profile')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
         children: [
@@ -3351,10 +4483,24 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 CircleAvatar(
                   radius: 48,
                   backgroundColor: const Color(0xFF103A86),
-                  child: Text(profile?.displayName.isNotEmpty == true ? profile!.displayName[0].toUpperCase() : 'C', style: const TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.w900)),
+                  child: Text(
+                    profile?.displayName.isNotEmpty == true
+                        ? profile!.displayName[0].toUpperCase()
+                        : 'C',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 34,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 14),
-                Text(profile?.displayName ?? 'Caregiver', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
+                Text(
+                  profile?.displayName ?? 'Caregiver',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                ),
                 const SizedBox(height: 4),
                 Text(profile?.email ?? ''),
               ],
@@ -3365,20 +4511,57 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             icon: Icons.edit_note_rounded,
             title: 'Edit Profile',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => EditProfileDetailsScreen(uid: widget.uid)),
+              MaterialPageRoute(
+                builder: (_) => EditProfileDetailsScreen(uid: widget.uid),
+              ),
             ),
           ),
-          _ProfileMenuItem(icon: Icons.event_note_outlined, title: 'Appointments', onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AppointmentsScreen(uid: widget.uid)))),
-          _ProfileMenuItem(icon: Icons.description_outlined, title: 'Documents', onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => DocumentsScreen(uid: widget.uid)))),
-          _ProfileMenuItem(icon: Icons.receipt_long_outlined, title: 'Activity', onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ActivityScreen(uid: widget.uid)))),
-          _ProfileMenuItem(icon: Icons.tune_rounded, title: 'Settings', onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SettingsScreen(uid: widget.uid)))),
+          _ProfileMenuItem(
+            icon: Icons.event_note_outlined,
+            title: 'Appointments',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => AppointmentsScreen(uid: widget.uid),
+              ),
+            ),
+          ),
+          _ProfileMenuItem(
+            icon: Icons.description_outlined,
+            title: 'Documents',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => DocumentsScreen(uid: widget.uid),
+              ),
+            ),
+          ),
+          _ProfileMenuItem(
+            icon: Icons.receipt_long_outlined,
+            title: 'Activity',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ActivityScreen(uid: widget.uid),
+              ),
+            ),
+          ),
+          _ProfileMenuItem(
+            icon: Icons.tune_rounded,
+            title: 'Settings',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => SettingsScreen(uid: widget.uid),
+              ),
+            ),
+          ),
           const SizedBox(height: 10),
           CareCrewPrimaryButton(
             label: 'Logout',
             onPressed: () async {
               await ref.read(repositoryProvider).signOut();
               if (context.mounted) {
-                Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const AuthScreen()), (route) => false);
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const AuthScreen()),
+                  (route) => false,
+                );
               }
             },
             leading: const Icon(Icons.logout_rounded),
@@ -3396,10 +4579,12 @@ class EditProfileDetailsScreen extends ConsumerStatefulWidget {
   final String uid;
 
   @override
-  ConsumerState<EditProfileDetailsScreen> createState() => _EditProfileDetailsScreenState();
+  ConsumerState<EditProfileDetailsScreen> createState() =>
+      _EditProfileDetailsScreenState();
 }
 
-class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScreen> {
+class _EditProfileDetailsScreenState
+    extends ConsumerState<EditProfileDetailsScreen> {
   final _nameController = TextEditingController();
   final _mobileController = TextEditingController();
   final _patientNameController = TextEditingController();
@@ -3448,17 +4633,23 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
     if (!_caregiverFormKey.currentState!.validate()) return;
     setState(() => _savingCaregiver = true);
     try {
-      await ref.read(repositoryProvider).updateUserProfile(
+      await ref
+          .read(repositoryProvider)
+          .updateUserProfile(
             uid: widget.uid,
             displayName: _nameController.text.trim(),
             mobileNumber: _mobileController.text.trim(),
           );
       if (!mounted) return;
       ref.invalidate(currentUserProfileProvider(widget.uid));
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile details updated.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Profile details updated.')));
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
       if (mounted) setState(() => _savingCaregiver = false);
     }
@@ -3467,12 +4658,16 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
   Future<void> _savePatientDetails() async {
     if (!_patientFormKey.currentState!.validate()) return;
     if (_patientDischargeDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please choose discharge date.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please choose discharge date.')),
+      );
       return;
     }
     setState(() => _savingPatient = true);
     try {
-      await ref.read(repositoryProvider).savePatientProfile(
+      await ref
+          .read(repositoryProvider)
+          .savePatientProfile(
             uid: widget.uid,
             profile: PatientProfile(
               id: 'main',
@@ -3485,10 +4680,14 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
           );
       if (!mounted) return;
       ref.invalidate(patientProfileProvider(widget.uid));
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Patient details updated.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Patient details updated.')));
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
       if (mounted) setState(() => _savingPatient = false);
     }
@@ -3537,7 +4736,9 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
                     controller: _nameController,
                     label: 'Full Name',
                     hintText: 'Enter your full name',
-                    validator: (value) => value == null || value.trim().isEmpty ? 'Name is required' : null,
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Name is required'
+                        : null,
                   ),
                   const SizedBox(height: 12),
                   CareCrewTextField(
@@ -3569,7 +4770,9 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
                     controller: _patientNameController,
                     label: 'Patient Full Name',
                     hintText: 'Enter patient name',
-                    validator: (value) => value == null || value.trim().isEmpty ? 'Patient name is required' : null,
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Patient name is required'
+                        : null,
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -3581,9 +4784,11 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
                           hintText: 'Enter age',
                           keyboardType: TextInputType.number,
                           validator: (value) {
-                            if (value == null || value.trim().isEmpty) return 'Age is required';
+                            if (value == null || value.trim().isEmpty)
+                              return 'Age is required';
                             final parsed = int.tryParse(value.trim());
-                            if (parsed == null || parsed <= 0) return 'Enter a valid age';
+                            if (parsed == null || parsed <= 0)
+                              return 'Enter a valid age';
                             return null;
                           },
                         ),
@@ -3610,7 +4815,9 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
                     label: 'Primary Condition',
                     hintText: 'Diagnosis / condition',
                     maxLines: 3,
-                    validator: (value) => value == null || value.trim().isEmpty ? 'Condition is required' : null,
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Condition is required'
+                        : null,
                   ),
                   const SizedBox(height: 12),
                   CareCrewTextField(
@@ -3618,11 +4825,15 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
                     label: 'Emergency Contact Number',
                     hintText: 'Enter emergency contact',
                     keyboardType: TextInputType.phone,
-                    validator: (value) => value == null || value.trim().isEmpty ? 'Emergency contact is required' : null,
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Emergency contact is required'
+                        : null,
                   ),
                   const SizedBox(height: 12),
                   CareCrewPrimaryButton(
-                    label: _savingPatient ? 'Saving...' : 'Save Patient Details',
+                    label: _savingPatient
+                        ? 'Saving...'
+                        : 'Save Patient Details',
                     onPressed: _savingPatient ? null : _savePatientDetails,
                     leading: const Icon(Icons.save_rounded),
                   ),
@@ -3637,7 +4848,11 @@ class _EditProfileDetailsScreenState extends ConsumerState<EditProfileDetailsScr
 }
 
 class _ProfileMenuItem extends StatelessWidget {
-  const _ProfileMenuItem({required this.icon, required this.title, required this.onTap});
+  const _ProfileMenuItem({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+  });
 
   final IconData icon;
   final String title;
@@ -3659,7 +4874,10 @@ class _ProfileMenuItem extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+                child: Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
               ),
               const Icon(Icons.chevron_right_rounded, color: Color(0xFFFFA3C4)),
             ],
