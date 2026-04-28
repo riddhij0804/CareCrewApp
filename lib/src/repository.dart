@@ -11,17 +11,50 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 class CareCrewRepository {
-      Future<void> setLastPatientLocation({required String uid, required String location}) async {
-        await _userDoc(uid).collection('meta').doc('last_patient_location').set({
-          'location': location,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      }
+  Future<void> setLastPatientLocation({
+    required String uid,
+    required String location,
+    String actor = 'Caregiver',
+    double? latitude,
+    double? longitude,
+    bool? sameAsPrevious,
+  }) async {
+    final data = <String, dynamic>{
+      'location': location,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (latitude != null) data['latitude'] = latitude;
+    if (longitude != null) data['longitude'] = longitude;
+    if (sameAsPrevious != null) data['same_as_previous'] = sameAsPrevious;
 
-      Future<String?> getLastPatientLocation(String uid) async {
-        final doc = await _userDoc(uid).collection('meta').doc('last_patient_location').get();
-        return doc.data()?['location'] as String?;
-      }
+    await _userDoc(uid).collection('meta').doc('last_patient_location').set(data, SetOptions(merge: true));
+
+    await addActivityLog(
+      uid: uid,
+      type: 'patient_location_updated',
+      title: 'Patient location updated',
+      details: sameAsPrevious == true
+          ? 'Patient is still at $location${latitude != null && longitude != null ? ' (${latitude.toStringAsFixed(5)}, ${longitude.toStringAsFixed(5)})' : ''}.'
+          : 'Patient location updated to $location${latitude != null && longitude != null ? ' (${latitude.toStringAsFixed(5)}, ${longitude.toStringAsFixed(5)})' : ''}.',
+      actor: actor,
+      meta: {
+        'location': location,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+        if (sameAsPrevious != null) 'same_as_previous': sameAsPrevious,
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>?> getLastPatientLocationData(String uid) async {
+    final doc = await _userDoc(uid).collection('meta').doc('last_patient_location').get();
+    return doc.data();
+  }
+
+  Future<String?> getLastPatientLocation(String uid) async {
+    final data = await getLastPatientLocationData(uid);
+    return data?['location'] as String?;
+  }
     Future<void> deleteMedication({
       required String uid,
       required MedicationEntry medication,

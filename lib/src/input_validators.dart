@@ -1,5 +1,9 @@
 class InputValidators {
-  static final RegExp _emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+  static final RegExp _emailRegex = RegExp(
+    r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$',
+  );
+  static final RegExp _passwordUppercaseRegex = RegExp(r'[A-Z]');
+  static final RegExp _passwordSpecialCharRegex = RegExp(r'[!@#\$%^&*(),.?":{}|<>_\-\[\]\\/`~;=+]' );
   static final RegExp _digitRegex = RegExp(r'\D');
 
   static String normalizePhone(String value) {
@@ -33,6 +37,12 @@ class InputValidators {
     if (input.isEmpty) return 'Password is required';
     if (input.length < minLength) {
       return 'Password must be at least $minLength characters';
+    }
+    if (!_passwordUppercaseRegex.hasMatch(input)) {
+      return 'Password must include at least one capital letter';
+    }
+    if (!_passwordSpecialCharRegex.hasMatch(input)) {
+      return 'Password must include at least one special character';
     }
     return null;
   }
